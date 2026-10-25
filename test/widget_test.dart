@@ -18,10 +18,12 @@ void main() {
     expect(find.text('Register Institution'), findsNothing);
 
     final selectedRole = tester.widget<Semantics>(
-      find.ancestor(
-        of: find.text('AICTE Officer'),
-        matching: find.byType(Semantics),
-      ).first,
+      find
+          .ancestor(
+            of: find.text('AICTE Officer'),
+            matching: find.byType(Semantics),
+          )
+          .first,
     );
     expect(selectedRole.properties.selected, isTrue);
     expect(find.text('Official Officer Access'), findsOneWidget);
@@ -89,7 +91,9 @@ void main() {
     expect(find.text('Welcome, Officer'), findsOneWidget);
   });
 
-  testWidgets('Home refreshes after corrected FDR verification', (tester) async {
+  testWidgets('Home refreshes after corrected FDR verification', (
+    tester,
+  ) async {
     DemoFdrPortalStore.instance.resetDemoData();
     await tester.pumpWidget(const AictePortalApp());
     await tester.enterText(find.byType(TextFormField).first, 'officer-123');
@@ -99,8 +103,14 @@ void main() {
     await tester.pumpAndSettle();
 
     final pendingMetric = find.byKey(const ValueKey('metric:Pending Review'));
-    expect(find.descendant(of: pendingMetric, matching: find.text('3')), findsOneWidget);
-    expect(find.text('Submission  FDR-2026-00124', findRichText: true), findsOneWidget);
+    expect(
+      find.descendant(of: pendingMetric, matching: find.text('4')),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Submission  FDR-2026-00124', findRichText: true),
+      findsOneWidget,
+    );
 
     await tester.ensureVisible(find.widgetWithText(TextButton, 'Review').first);
     await tester.tap(find.widgetWithText(TextButton, 'Review').first);
@@ -120,7 +130,10 @@ void main() {
     await tester.tap(find.text('Correct Details'));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextFormField).at(0), 'FDR-EX-884201-CORRECTED');
+    await tester.enterText(
+      find.byType(TextFormField).at(0),
+      'FDR-EX-884201-CORRECTED',
+    );
     await tester.enterText(find.byType(TextFormField).at(1), '450000');
     tester.testTextInput.hide();
     await tester.pumpAndSettle();
@@ -138,10 +151,7 @@ void main() {
     );
     await tester.tap(find.text('Run Verification'));
     await tester.pumpAndSettle();
-    expect(
-      const MockOfficerDashboardRepository().summary['Pending Review'],
-      2,
-    );
+    expect(const MockOfficerDashboardRepository().summary['Pending Review'], 4);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -151,16 +161,31 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Welcome back, Officer'), findsOneWidget);
-    expect(find.descendant(of: pendingMetric, matching: find.text('2')), findsOneWidget);
-    expect(find.text('Submission  FDR-2026-00124', findRichText: true), findsNothing);
-    expect(find.text('Submission  FDR-2026-00125', findRichText: true), findsOneWidget);
-    expect(find.text('Submission  FDR-2026-00126', findRichText: true), findsOneWidget);
+    expect(
+      find.descendant(of: pendingMetric, matching: find.text('4')),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Submission  FDR-2026-00124', findRichText: true),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Submission  FDR-2026-00125', findRichText: true),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Submission  FDR-2026-00126', findRichText: true),
+      findsOneWidget,
+    );
     expect(find.text('Approved'), findsOneWidget);
   });
 
-  testWidgets('Approved overview opens the filtered approved submission list', (tester) async {
+  testWidgets('Approved overview opens the filtered approved submission list', (
+    tester,
+  ) async {
     final store = DemoFdrPortalStore.instance;
     store.resetDemoData();
+    store.setVerificationScenario(DemoVerificationScenario.resolved);
     store.createReleaseCase();
     store.updateReleaseCaseType('Merger');
     store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared');
@@ -179,15 +204,30 @@ void main() {
 
     expect(find.text('Approved Submissions'), findsOneWidget);
     expect(find.text('Approved (1)'), findsOneWidget);
-    expect(find.text('Submission  FDR-2026-00124', findRichText: true), findsOneWidget);
-    expect(find.text('FDR reference  FDR-EX-884201', findRichText: true), findsOneWidget);
-    expect(find.text('Action  Demo approval by Demo Officer', findRichText: true), findsOneWidget);
-    expect(find.text('Pending Review (2)'), findsOneWidget);
+    expect(
+      find.text('Submission  FDR-2026-00124', findRichText: true),
+      findsOneWidget,
+    );
+    expect(
+      find.text('FDR reference  FDR-EX-884201-RESOLVED', findRichText: true),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Action  Demo approval by Demo Officer', findRichText: true),
+      findsOneWidget,
+    );
+    expect(find.text('Pending Review (3)'), findsOneWidget);
 
-    await tester.tap(find.text('Pending Review (2)'));
+    await tester.tap(find.text('Pending Review (3)'));
     await tester.pumpAndSettle();
-    expect(find.text('Submission  FDR-2026-00124', findRichText: true), findsNothing);
-    expect(find.text('Submission  FDR-2026-00125', findRichText: true), findsOneWidget);
+    expect(
+      find.text('Submission  FDR-2026-00124', findRichText: true),
+      findsNothing,
+    );
+    expect(
+      find.text('Submission  FDR-2026-00125', findRichText: true),
+      findsOneWidget,
+    );
   });
 
   testWidgets('password is hidden until visibility is toggled', (
@@ -203,5 +243,48 @@ void main() {
     await tester.pump();
     passwordField = tester.widget<TextField>(find.byType(TextField).last);
     expect(passwordField.obscureText, isFalse);
+  });
+
+  testWidgets('overview numbers match submission tab counts', (tester) async {
+    DemoFdrPortalStore.instance.resetDemoData();
+    await tester.pumpWidget(const AictePortalApp());
+    await tester.enterText(find.byType(TextFormField).first, 'officer-123');
+    await tester.enterText(find.byType(TextFormField).last, 'demo-password');
+    await tester.ensureVisible(find.text('Sign In to Officer Portal'));
+    await tester.tap(find.text('Sign In to Officer Portal'));
+    await tester.pumpAndSettle();
+
+    const overviewCounts = {
+      'Pending Review': '4',
+      'Approved': '0',
+      'Rejected': '0',
+      'Needs Correction': '1',
+      'Blocked': '1',
+      'Total Submissions': '6',
+      'Total Institutions': '3',
+    };
+    for (final entry in overviewCounts.entries) {
+      final card = find.byKey(ValueKey('metric:${entry.key}'));
+      await tester.ensureVisible(card);
+      expect(
+        find.descendant(of: card, matching: find.text(entry.value)),
+        findsOneWidget,
+      );
+    }
+
+    final allSubmissionsCard = find.byKey(
+      const ValueKey('metric:Total Submissions'),
+    );
+    await tester.ensureVisible(allSubmissionsCard);
+    await tester.tap(allSubmissionsCard);
+    await tester.pumpAndSettle();
+
+    expect(find.text('All Submissions'), findsOneWidget);
+    expect(find.text('All (6)'), findsOneWidget);
+    expect(find.text('Pending Review (4)'), findsOneWidget);
+    expect(find.text('Approved (0)'), findsOneWidget);
+    expect(find.text('Rejected (0)'), findsOneWidget);
+    expect(find.text('Correction (1)'), findsOneWidget);
+    expect(find.text('Blocked (1)'), findsOneWidget);
   });
 }

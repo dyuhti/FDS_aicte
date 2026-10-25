@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'institution_dashboard.dart';
 import 'officer_dashboard.dart';
 
 void main() {
@@ -95,9 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
           onSignOut: () => setState(() => _isSignedIn = false),
         );
       }
-      return _MockDashboardScreen(
-        userId: _userIdController.text.trim(),
-        isOfficer: false,
+      return InstitutionDashboardScreen(
         onSignOut: () => setState(() => _isSignedIn = false),
       );
     }
@@ -380,12 +379,15 @@ class _LoginScreenState extends State<LoginScreen> {
                                 color: Color(0xFF16A34A),
                               ),
                               SizedBox(width: 7),
-                              Text(
-                                'Authorized AICTE personnel only',
-                                style: TextStyle(
-                                  color: _muted,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
+                              Flexible(
+                                child: Text(
+                                  'Authorized AICTE personnel only',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: _muted,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                               ),
                             ],
@@ -419,89 +421,6 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _MockDashboardScreen extends StatelessWidget {
-  const _MockDashboardScreen({
-    required this.userId,
-    required this.isOfficer,
-    required this.onSignOut,
-  });
-
-  final String userId;
-  final bool isOfficer;
-  final VoidCallback onSignOut;
-
-  @override
-  Widget build(BuildContext context) {
-    final roleName = isOfficer ? 'AICTE Officer' : 'Institution';
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('$roleName Dashboard'),
-        backgroundColor: const Color(0xFFFFFBF7),
-        actions: [
-          IconButton(
-            tooltip: 'Sign out',
-            onPressed: onSignOut,
-            icon: const Icon(Icons.logout_rounded),
-          ),
-        ],
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.account_balance_rounded,
-                color: Color(0xFFF97316),
-                size: 48,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Signed in as $userId',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Color(0xFF1F2937),
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '$roleName access',
-                style: const TextStyle(color: Color(0xFF6B7280)),
-              ),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF7ED),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Text(
-                  'Demo mode: any valid ID and non-empty password are accepted. Backend authentication is not connected.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Color(0xFF9A3412),
-                    fontSize: 13,
-                    height: 1.45,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              OutlinedButton.icon(
-                onPressed: onSignOut,
-                icon: const Icon(Icons.logout_rounded),
-                label: const Text('Sign Out'),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -599,12 +518,15 @@ class _BrandHeader extends StatelessWidget {
           children: [
             Icon(Icons.verified_user_outlined, size: 14, color: Color(0xFF16A34A)),
             SizedBox(width: 5),
-            Text(
-              'Secure. Track. Verify. Release.',
-              style: TextStyle(
-                color: Color(0xFF6B7280),
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+            Flexible(
+              child: Text(
+                'Secure. Track. Verify. Release.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xFF6B7280),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
           ],
