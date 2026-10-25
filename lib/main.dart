@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'officer_dashboard.dart';
+
 void main() {
   runApp(const AictePortalApp());
 }
@@ -48,6 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _institutionSelected = false;
   bool _passwordVisible = false;
   bool _isLoading = false;
+  bool _isSignedIn = false;
   String? _authenticationError;
 
   @override
@@ -67,8 +70,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     setState(() {
       _isLoading = false;
-      _authenticationError =
-          'Sign-in is not connected yet. Please try again later.';
+      _isSignedIn = true;
     });
   }
 
@@ -86,6 +88,20 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isSignedIn) {
+      if (!_institutionSelected) {
+        return OfficerDashboardScreen(
+          userId: _userIdController.text.trim(),
+          onSignOut: () => setState(() => _isSignedIn = false),
+        );
+      }
+      return _MockDashboardScreen(
+        userId: _userIdController.text.trim(),
+        isOfficer: false,
+        onSignOut: () => setState(() => _isSignedIn = false),
+      );
+    }
+
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return Scaffold(
       body: Stack(
@@ -403,6 +419,89 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MockDashboardScreen extends StatelessWidget {
+  const _MockDashboardScreen({
+    required this.userId,
+    required this.isOfficer,
+    required this.onSignOut,
+  });
+
+  final String userId;
+  final bool isOfficer;
+  final VoidCallback onSignOut;
+
+  @override
+  Widget build(BuildContext context) {
+    final roleName = isOfficer ? 'AICTE Officer' : 'Institution';
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('$roleName Dashboard'),
+        backgroundColor: const Color(0xFFFFFBF7),
+        actions: [
+          IconButton(
+            tooltip: 'Sign out',
+            onPressed: onSignOut,
+            icon: const Icon(Icons.logout_rounded),
+          ),
+        ],
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.account_balance_rounded,
+                color: Color(0xFFF97316),
+                size: 48,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Signed in as $userId',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFF1F2937),
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$roleName access',
+                style: const TextStyle(color: Color(0xFF6B7280)),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF7ED),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  'Demo mode: any valid ID and non-empty password are accepted. Backend authentication is not connected.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color(0xFF9A3412),
+                    fontSize: 13,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              OutlinedButton.icon(
+                onPressed: onSignOut,
+                icon: const Icon(Icons.logout_rounded),
+                label: const Text('Sign Out'),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
