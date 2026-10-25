@@ -41,6 +41,137 @@ const _clearedCells = [
 ];
 
 void main() {
+  group('Officer dashboard data', () {
+    final store = DemoFdrPortalStore.instance;
+    const repository = MockOfficerDashboardRepository();
+
+    setUp(store.resetDemoData);
+
+    test('passed verification removes only that submission from pending', () {
+      expect(repository.summary, {
+        'Pending Review': 3,
+        'Approved': 0,
+        'Rejected': 0,
+        'Total Institutions': 3,
+      });
+      expect(
+        store.dashboardSubmissions.map((submission) => submission.submissionId),
+        containsAll(['FDR-2026-00124', 'FDR-2026-00125', 'FDR-2026-00126']),
+      );
+
+      store.setCurrentSubmission(
+        store.currentSubmission.copyWith(
+          fdrNumber: 'FDR-UNIQUE-DASHBOARD-001',
+          declaredDepositAmount: 450000,
+        ),
+      );
+      final verification = store.runCurrentVerification();
+
+      expect(verification.blocking, 0);
+      expect(
+        store.currentSubmission.submissionStatus,
+        'FDR Verified — Awaiting Release Review',
+      );
+      expect(repository.summary['Pending Review'], 2);
+      expect(repository.summary['Approved'], 0);
+      expect(repository.summary['Rejected'], 0);
+      expect(repository.summary['Total Institutions'], 3);
+      expect(
+        repository.pendingSubmissions.map((submission) => submission.submissionId),
+        isNot(contains('FDR-2026-00124')),
+      );
+      expect(
+        store.dashboardSubmissions
+            .singleWhere((submission) => submission.submissionId == 'FDR-2026-00124')
+            .status,
+        VerificationStatus.verified,
+      );
+    });
+
+    test('blocked submission stays pending and visible', () {
+      store.runCurrentVerification();
+
+      expect(repository.summary['Pending Review'], 3);
+      expect(repository.summary['Rejected'], 0);
+      expect(
+        store.currentSubmission.submissionStatus,
+        'Blocked — FDR Verification',
+      );
+      expect(
+        store.dashboardSubmissions
+            .singleWhere((submission) => submission.submissionId == 'FDR-2026-00124')
+            .status,
+        VerificationStatus.blocked,
+      );
+      expect(
+        repository.pendingSubmissions.map((submission) => submission.submissionId),
+        contains('FDR-2026-00124'),
+      );
+    });
+
+    test('Final NOC does not mark the submission officially approved', () {
+      store.setCurrentSubmission(
+        store.currentSubmission.copyWith(
+          fdrNumber: 'FDR-UNIQUE-DASHBOARD-002',
+          declaredDepositAmount: 450000,
+        ),
+      );
+      store.createReleaseCase();
+      store.runCurrentVerification();
+
+      expect(repository.summary['Pending Review'], 2);
+      expect(repository.summary['Approved'], 0);
+      store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared');
+      store.updateClearanceStatus('Vigilance Cell', 'Cleared');
+      expect(repository.summary['Approved'], 0);
+
+      store.issueDemoNoc();
+
+      expect(store.releaseCase!.status, 'NOC Issued — Demo');
+      expect(repository.summary['Approved'], 0);
+      expect(repository.summary['Rejected'], 0);
+    });
+
+    test('eligible demo merger approval updates the linked submission once', () {
+      store.createReleaseCase();
+      store.updateReleaseCaseType('Merger');
+      store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared');
+      store.updateClearanceStatus('Vigilance Cell', 'Cleared');
+      store.approveMergerInDemoMode();
+
+      final approved = store.dashboardSubmissions
+          .singleWhere((submission) => submission.submissionId == 'FDR-2026-00124');
+      expect(approved.status, VerificationStatus.approved);
+      expect(approved.approvedAt, isNotNull);
+      expect(approved.approvedBy, 'Demo Officer');
+      expect(repository.summary['Approved'], 1);
+      expect(
+        repository.summary['Approved'],
+        repository.submissions
+        .where((submission) => submission.status == VerificationStatus.approved)
+        .length,
+      );
+      expect(store.currentSubmission.submissionStatus, 'Approved — Demo');
+      expect(repository.pendingSubmissions.map((submission) => submission.submissionId),
+          isNot(contains('FDR-2026-00124')));
+
+      store.approveMergerInDemoMode();
+      expect(repository.summary['Approved'], 1);
+    });
+
+    test('updating an existing institution does not increase registry count', () {
+      final initialCount = repository.summary['Total Institutions'];
+
+      store.setCurrentSubmission(
+        store.currentSubmission.copyWith(
+          institution: 'Example Institute of Technology, Updated',
+        ),
+      );
+
+      expect(repository.summary['Total Institutions'], initialCount);
+    });
+  });
+
   group('canAdvanceReleaseCase', () {
     test('blocks unresolved discrepancies and keeps warnings visible', () {
       final result = canAdvanceReleaseCase(
@@ -125,7 +256,7 @@ void main() {
       );
       expect(invalid.canAdvance, isFalse);
       expect(invalid.blockingReasons.join(' '), contains('original FDR amount'));
-      expect(invalid.blockingReasons.join(' '), contains('available balance'));
+      expect(invalid.blockingReasons.join(' '), contains('cannot exceed'));
       expect(invalid.blockingReasons.join(' '), contains('negative'));
     });
 
@@ -199,6 +330,242 @@ void main() {
     });
   });
 
+  test('shared verification reports amount mismatch and duplicate FDR blockers', () {
+    final result = FdrVerificationService.runVerification(
+      DemoFdrPortalStore.instance.currentSubmission,
+    );
+
+    expect(result.blocking, 2);
+    expect(
+      result.issues.map((issue) => issue.ruleId),
+      containsAll(['deposit-amount', 'duplicate-fdr']),
+    );
+  });
+
+  test('normal release NOC is gated by verification and repeat calls are idempotent', () {
+    final store = DemoFdrPortalStore.instance;
+    store.resetDemoData();
+    store.createReleaseCase();
+    store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared');
+    store.updateClearanceStatus('Vigilance Cell', 'Cleared');
+
+    store.issueDemoNoc();
+    expect(store.releaseCase!.status, isNot('NOC Issued — Demo'));
+
+    store.setVerificationScenario(DemoVerificationScenario.resolved);
+    store.issueDemoNoc();
+    expect(store.releaseCase!.status, 'NOC Issued — Demo');
+
+    store.issueDemoNoc();
+    expect(store.releaseCase!.status, 'NOC Issued — Demo');
+  });
+
+  test('cell clearance in one case does not clear another case', () {
+    final store = DemoFdrPortalStore.instance;
+    store.resetDemoData();
+    store.createReleaseCase();
+    store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared');
+    store.updateReleaseCaseType('Progressive Closure');
+
+    expect(
+      store.releaseCase!.clearances
+          .where((clearance) => clearance.name == 'Grievance Redressal Cell')
+          .single.status,
+      'Pending',
+    );
+  });
+
+  group('Normal Release status and eligibility', () {
+    final store = DemoFdrPortalStore.instance;
+
+    setUp(() {
+      store.resetDemoData();
+      store.createReleaseCase();
+    });
+
+    test('two verification blockers keep FDR Verification current after both cells clear', () {
+      store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared');
+      store.updateClearanceStatus('Vigilance Cell', 'Cleared');
+
+      expect(store.lastVerification.blocking, 2);
+      expect(store.releaseCase!.status, 'Blocked — FDR Verification');
+      final eligibility = ReleaseEligibilityService.evaluate(
+        record: store.releaseCase!,
+        verification: store.lastVerification,
+      );
+      expect(eligibility.canAdvance, isFalse);
+      expect(eligibility.nextEligibleStage, 'FDR Verification');
+      store.issueDemoNoc();
+      expect(store.releaseCase!.status, 'Blocked — FDR Verification');
+    });
+
+    test('correcting one discrepancy leaves the other blocker current', () {
+      store.setCurrentSubmission(
+        store.currentSubmission.copyWith(declaredDepositAmount: 450000),
+      );
+      expect(store.verificationCurrent, isFalse);
+      expect(store.releaseCase!.status, 'Verification Required');
+      store.runCurrentVerification();
+
+      expect(store.currentSubmission.receiptAmount, 450000);
+      expect(store.lastVerification.blocking, 1);
+      expect(
+        store.lastVerification.issues.map((issue) => issue.ruleId),
+        contains('duplicate-fdr'),
+      );
+      expect(store.releaseCase!.status, 'Blocked — FDR Verification');
+      expect(
+        ReleaseEligibilityService.evaluate(
+          record: store.releaseCase!,
+          verification: store.lastVerification,
+        ).nextEligibleStage,
+        'FDR Verification',
+      );
+    });
+
+    test('resolving both blockers advances status and permits demo NOC', () {
+      store.setCurrentSubmission(
+        store.currentSubmission.copyWith(
+          fdrNumber: 'FDR-EX-884201-CORRECTED',
+          declaredDepositAmount: 450000,
+        ),
+      );
+      store.runCurrentVerification();
+
+      expect(store.lastVerification.blocking, 0);
+      expect(store.lastVerification.warnings, 1);
+      expect(store.releaseCase!.status, 'Awaiting Clearances');
+
+      store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared');
+      store.updateClearanceStatus('Vigilance Cell', 'Cleared');
+
+      expect(store.releaseCase!.status, 'Ready for Final NOC');
+      expect(
+        ReleaseEligibilityService.evaluate(
+          record: store.releaseCase!,
+          verification: store.lastVerification,
+        ).canAdvance,
+        isTrue,
+      );
+      store.issueDemoNoc();
+      expect(store.releaseCase!.status, 'NOC Issued — Demo');
+    });
+
+    test('missing required document blocks an otherwise clear Normal Release', () {
+      store.setCurrentSubmission(
+        store.currentSubmission.copyWith(
+          fdrNumber: 'FDR-UNIQUE-001',
+          declaredDepositAmount: 450000,
+        ),
+      );
+      store.runCurrentVerification();
+      store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared');
+      store.updateClearanceStatus('Vigilance Cell', 'Cleared');
+      store.updateDocumentPresence('request_letter.pdf', false);
+
+      expect(store.releaseCase!.status, 'Awaiting Required Documents');
+      expect(
+        ReleaseEligibilityService.evaluate(
+          record: store.releaseCase!,
+          verification: store.lastVerification,
+        ).missingDocuments,
+        contains('Request Letter'),
+      );
+      store.issueDemoNoc();
+      expect(store.releaseCase!.status, 'Awaiting Required Documents');
+    });
+
+    test('pending cell clearances advance independently after verification passes', () {
+      store.setCurrentSubmission(
+        store.currentSubmission.copyWith(
+          fdrNumber: 'FDR-UNIQUE-002',
+          declaredDepositAmount: 450000,
+        ),
+      );
+      store.runCurrentVerification();
+
+      expect(store.releaseCase!.status, 'Awaiting Clearances');
+      store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared');
+      expect(store.releaseCase!.status, 'Awaiting Clearances');
+      expect(
+        ReleaseEligibilityService.evaluate(
+          record: store.releaseCase!,
+          verification: store.lastVerification,
+        ).pendingClearances,
+        ['Vigilance Cell'],
+      );
+
+      store.updateClearanceStatus('Vigilance Cell', 'Cleared');
+      expect(store.releaseCase!.status, 'Ready for Final NOC');
+    });
+
+    test('missing lien remains a warning and does not block eligibility', () {
+      store.setCurrentSubmission(
+        store.currentSubmission.copyWith(
+          fdrNumber: 'FDR-UNIQUE-003',
+          declaredDepositAmount: 450000,
+        ),
+      );
+      store.runCurrentVerification();
+      store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared');
+      store.updateClearanceStatus('Vigilance Cell', 'Cleared');
+
+      final eligibility = ReleaseEligibilityService.evaluate(
+        record: store.releaseCase!,
+        verification: store.lastVerification,
+      );
+      expect(store.lastVerification.blocking, 0);
+      expect(store.lastVerification.warnings, 1);
+      expect(eligibility.canAdvance, isTrue);
+      expect(eligibility.warnings, contains('Lien information requires review.'));
+      expect(store.releaseCase!.status, 'Ready for Final NOC');
+    });
+  });
+
+  test('saved correction persists to selected submission and verification uses saved fields', () {
+    final store = DemoFdrPortalStore.instance;
+    store.resetDemoData();
+    store.createReleaseCase();
+    final originalReceipt = store.currentSubmission.receiptAmount;
+    final corrected = store.currentSubmission.copyWith(
+      fdrNumber: 'FDR-EX-884201-CORRECTED',
+      declaredDepositAmount: 450000,
+    );
+
+    store.setCurrentSubmission(corrected);
+
+    expect(store.currentSubmission.submissionId, 'FDR-2026-00124');
+    expect(store.releaseCase!.submissionId, store.currentSubmission.submissionId);
+    expect(store.currentSubmission.fdrNumber, 'FDR-EX-884201-CORRECTED');
+    expect(store.currentSubmission.declaredDepositAmount, 450000);
+    expect(store.currentSubmission.receiptAmount, originalReceipt);
+    expect(store.verificationCurrent, isFalse);
+    expect(store.verificationResults.statusText, 'NOT RUN — Verify saved FDR details');
+    expect(store.releaseCase!.status, 'Verification Required');
+
+    final refreshed = store.runCurrentVerification();
+    expect(store.verificationCurrent, isTrue);
+    expect(refreshed.blocking, 0);
+    expect(refreshed.issues.map((issue) => issue.ruleId), contains('lien-information'));
+    expect(store.releaseCase!.status, 'Awaiting Clearances');
+  });
+
+  test('saved mismatch or duplicate remains blocked after verification', () {
+    final store = DemoFdrPortalStore.instance;
+    store.resetDemoData();
+    store.createReleaseCase();
+    store.setCurrentSubmission(
+      store.currentSubmission.copyWith(declaredDepositAmount: 400000),
+    );
+    expect(store.verificationCurrent, isFalse);
+    expect(store.releaseCase!.status, 'Verification Required');
+
+    final summary = store.runCurrentVerification();
+    expect(summary.issues.map((issue) => issue.ruleId), containsAll(['deposit-amount', 'duplicate-fdr']));
+    expect(summary.blocking, 2);
+    expect(store.releaseCase!.status, 'Blocked — FDR Verification');
+  });
+
   testWidgets('blocked verification can open the gated release case', (tester) async {
     DemoFdrPortalStore.instance.resetDemoData();
     await tester.pumpWidget(const AictePortalApp());
@@ -211,24 +578,39 @@ void main() {
     await tester.ensureVisible(find.widgetWithText(TextButton, 'Review').first);
     await tester.tap(find.widgetWithText(TextButton, 'Review').first);
     await tester.pumpAndSettle();
+    expect(find.text('AICTE Officer Portal'), findsOneWidget);
+    expect(find.text('Security Deposit Management'), findsOneWidget);
+    final headerTop = tester.getTopLeft(find.text('AICTE Officer Portal')).dy;
     await tester.scrollUntilVisible(
       find.text('Run Verification'),
       350,
       scrollable: find.byType(Scrollable).last,
     );
+    expect(tester.getTopLeft(find.text('AICTE Officer Portal')).dy, headerTop);
     await tester.tap(find.text('Run Verification'));
     await tester.pumpAndSettle();
+    expect(find.text('Verification Results'), findsOneWidget);
+    expect(find.text('AICTE Officer Portal'), findsOneWidget);
 
     await tester.scrollUntilVisible(
       find.text('Open Blocked Release Case'),
       450,
       scrollable: find.byType(Scrollable).last,
     );
+    await tester.ensureVisible(find.text('Open Blocked Release Case'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Open Blocked Release Case'));
     await tester.pumpAndSettle();
 
     expect(find.text('Release / Refund Case'), findsOneWidget);
     expect(find.text('Case Summary'), findsOneWidget);
+    expect(find.text('Blocked — FDR Verification'), findsOneWidget);
+    expect(find.text('AICTE Officer Portal'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Required Documents'),
+      350,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.text('Required Documents'), findsWidgets);
 
     final caseTypeDropdown = find.byType(DropdownButtonFormField<String>);
@@ -248,6 +630,170 @@ void main() {
     expect(DemoFdrPortalStore.instance.selectedCaseType, 'Merger');
     expect(find.text('Merger').first, findsOneWidget);
     expect(find.text('Successor institution'), findsWidgets);
+
+    await tester.ensureVisible(caseTypeDropdown);
+    await tester.tap(caseTypeDropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Normal Release').last);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Simulate Final NOC'),
+      400,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(
+      tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Simulate Final NOC')).onPressed,
+      isNull,
+    );
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Verification Results'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('View Audit Trail'),
+      400,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('View Audit Trail'));
+    await tester.pumpAndSettle();
+    expect(find.text('Audit Trail'), findsOneWidget);
+    expect(find.text('AICTE Officer Portal'), findsOneWidget);
+    expect(find.byTooltip('Back'), findsOneWidget);
+  });
+
+  testWidgets('eligible Normal Release enables and audits simulated Final NOC', (tester) async {
+    final store = DemoFdrPortalStore.instance;
+    store.resetDemoData();
+    store.setCurrentSubmission(
+      store.currentSubmission.copyWith(
+        fdrNumber: 'FDR-UNIQUE-WIDGET',
+        declaredDepositAmount: 450000,
+      ),
+    );
+    store.createReleaseCase();
+    store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared');
+    store.updateClearanceStatus('Vigilance Cell', 'Cleared');
+
+    await tester.pumpWidget(const AictePortalApp());
+    await tester.enterText(find.byType(TextFormField).first, 'officer-123');
+    await tester.enterText(find.byType(TextFormField).last, 'demo-password');
+    await tester.ensureVisible(find.text('Sign In to Officer Portal'));
+    await tester.tap(find.text('Sign In to Officer Portal'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.widgetWithText(TextButton, 'Review').first);
+    await tester.tap(find.widgetWithText(TextButton, 'Review').first);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Run Verification'),
+      350,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('Run Verification'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('REL-2026-00017'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Open Release / Refund Case'),
+      400,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('Open Release / Refund Case'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ready for Final NOC'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Simulate Final NOC'),
+      400,
+      scrollable: find.byType(Scrollable).last,
+    );
+    final nocButton = find.widgetWithText(FilledButton, 'Simulate Final NOC');
+    expect(tester.widget<FilledButton>(nocButton).onPressed, isNotNull);
+
+    await tester.tap(nocButton);
+    await tester.pumpAndSettle();
+    expect(
+      find.text('This records a local demo outcome only. It is not an official NOC and does not release funds.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Confirm demo action'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('NOC Issued — Demo'), findsWidgets);
+    expect(
+      store.auditEntries.any((entry) =>
+          entry.action == 'Final NOC simulated' &&
+          entry.associatedId == 'REL-2026-00017'),
+      isTrue,
+    );
+  });
+
+  testWidgets('correct details save latest values and require explicit verification', (tester) async {
+    final store = DemoFdrPortalStore.instance;
+    store.resetDemoData();
+    final receiptAmount = store.currentSubmission.receiptAmount;
+
+    await tester.pumpWidget(const AictePortalApp());
+    await tester.enterText(find.byType(TextFormField).first, 'officer-123');
+    await tester.enterText(find.byType(TextFormField).last, 'demo-password');
+    await tester.ensureVisible(find.text('Sign In to Officer Portal'));
+    await tester.tap(find.text('Sign In to Officer Portal'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.widgetWithText(TextButton, 'Review').first);
+    await tester.tap(find.widgetWithText(TextButton, 'Review').first);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Run Verification'),
+      350,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('Run Verification'));
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.text('Correct Details'),
+      350,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('Correct Details'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextFormField).at(1), '450000');
+  tester.testTextInput.hide();
+  await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).last, const Offset(0, -900));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Save Corrected Details'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save Corrected Details'));
+    await tester.pumpAndSettle();
+
+    expect(store.currentSubmission.submissionId, 'FDR-2026-00124');
+    expect(store.currentSubmission.declaredDepositAmount, 450000);
+    expect(store.currentSubmission.receiptAmount, receiptAmount);
+    expect(store.verificationCurrent, isFalse);
+    expect(store.releaseCase!.status, 'Verification Required');
+    expect(find.textContaining('Corrected FDR details were saved.'), findsOneWidget);
+    expect(find.text('NOT RUN — Verify saved FDR details'), findsOneWidget);
+    expect(find.text('—'), findsNWidgets(3));
+
+    await tester.drag(find.byType(ListView).last, const Offset(0, -450));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Run Verification'));
+    await tester.pumpAndSettle();
+
+    expect(store.verificationCurrent, isTrue);
+    expect(store.lastVerification.blocking, 1);
+    expect(
+      store.lastVerification.issues.map((issue) => issue.ruleId),
+      contains('duplicate-fdr'),
+    );
+    expect(
+      store.lastVerification.issues.map((issue) => issue.ruleId),
+      isNot(contains('deposit-amount')),
+    );
+    expect(store.releaseCase!.status, 'Blocked — FDR Verification');
   });
 
   test('shared audit chain verifies appended demo events', () {
@@ -264,5 +810,287 @@ void main() {
 
     expect(result.isValid, isTrue);
     expect(result.invalidEntryId, isNull);
+  });
+
+  test('progressive closure validation rejects invalid amounts and prevents negative retained balances', () {
+    final originalAmount = 500000;
+    final availableBalance = 500000;
+
+    expect(
+      ReleaseEligibilityService.validateRequestedAmount('150000', originalFdrAmount: originalAmount, availableBalance: availableBalance),
+      isNull,
+    );
+    expect(
+      ReleaseEligibilityService.validateRequestedAmount('500000', originalFdrAmount: originalAmount, availableBalance: availableBalance),
+      isNull,
+    );
+    expect(
+      ReleaseEligibilityService.validateRequestedAmount('5000001', originalFdrAmount: originalAmount, availableBalance: availableBalance),
+      isNotNull,
+    );
+    expect(
+      ReleaseEligibilityService.validateRequestedAmount('600000', originalFdrAmount: originalAmount, availableBalance: availableBalance),
+      isNotNull,
+    );
+    expect(
+      ReleaseEligibilityService.validateRequestedAmount('0', originalFdrAmount: originalAmount, availableBalance: availableBalance),
+      isNotNull,
+    );
+    expect(
+      ReleaseEligibilityService.validateRequestedAmount('-100', originalFdrAmount: originalAmount, availableBalance: availableBalance),
+      isNotNull,
+    );
+    expect(
+      ReleaseEligibilityService.validateRequestedAmount('', originalFdrAmount: originalAmount, availableBalance: availableBalance),
+      isNotNull,
+    );
+    expect(
+      ReleaseEligibilityService.validateRequestedAmount('abc', originalFdrAmount: originalAmount, availableBalance: availableBalance),
+      isNotNull,
+    );
+
+    final valid = ReleaseEligibilityService.evaluate(
+      record: const ReleaseCase(
+        caseId: 'PCL-001',
+        submissionId: 'SUB-001',
+        institution: 'Demo Institution',
+        caseType: 'Progressive Closure',
+        status: 'Pending Review',
+        checklist: [
+          DemoChecklistItem(name: 'Required document', fileName: 'doc.pdf', status: 'Present — Demo'),
+        ],
+        clearances: [
+          ClearanceState(name: 'Grievance Redressal Cell', status: 'Cleared', remark: 'Reviewed', actionRequired: 'Review grievances.'),
+          ClearanceState(name: 'Vigilance Cell', status: 'Cleared', remark: 'Reviewed', actionRequired: 'Inspect compliance.'),
+        ],
+        originalFdrAmount: 500000,
+        availableBalance: 500000,
+        requestedReleaseAmount: 150000,
+        partialReleaseReason: 'Stage release',
+        originalFdrReference: 'FDR-PCL-552901',
+      ),
+      verification: const VerificationSummary(
+        totalChecks: 0,
+        blocking: 0,
+        warnings: 0,
+        statusText: 'Demo verification passed',
+        issues: [],
+      ),
+    );
+    expect(valid.canAdvance, isTrue);
+    expect(valid.blockingReasons, isEmpty);
+    expect(150000 + valid.missingDocuments.length, equals(150000));
+
+    final invalid = ReleaseEligibilityService.evaluate(
+      record: const ReleaseCase(
+        caseId: 'PCL-002',
+        submissionId: 'SUB-002',
+        institution: 'Demo Institution',
+        caseType: 'Progressive Closure',
+        status: 'Pending Review',
+        checklist: [
+          DemoChecklistItem(name: 'Required document', fileName: 'doc.pdf', status: 'Present — Demo'),
+        ],
+        clearances: [
+          ClearanceState(name: 'Grievance Redressal Cell', status: 'Cleared', remark: 'Reviewed', actionRequired: 'Review grievances.'),
+          ClearanceState(name: 'Vigilance Cell', status: 'Cleared', remark: 'Reviewed', actionRequired: 'Inspect compliance.'),
+        ],
+        originalFdrAmount: 500000,
+        availableBalance: 500000,
+        requestedReleaseAmount: 600000,
+        partialReleaseReason: 'Stage release',
+        originalFdrReference: 'FDR-PCL-552901',
+      ),
+      verification: const VerificationSummary(
+        totalChecks: 0,
+        blocking: 0,
+        warnings: 0,
+        statusText: 'Demo verification passed',
+        issues: [],
+      ),
+    );
+    expect(invalid.canAdvance, isFalse);
+    expect(invalid.blockingReasons.join(' '), contains('original FDR amount'));
+    expect(invalid.blockingReasons.join(' '), contains('negative'));
+  });
+
+  test('missing documents and workflow progression are derived from actual checklist states', () {
+    final store = DemoFdrPortalStore.instance;
+    store.resetDemoData();
+    store.createReleaseCase();
+    store.updateReleaseCaseType('Progressive Closure');
+
+    final partial = store.releaseCase!.copyWith(
+      checklist: const [
+        DemoChecklistItem(name: 'Institution partial release request', fileName: 'pcl_request_letter.pdf', type: 'Signed request letter', isRequired: true, isPresent: false, status: 'Missing — Demo'),
+        DemoChecklistItem(name: 'Updated FDR evidence', fileName: 'pcl_fdr_copy.pdf', type: 'FDR copy', isRequired: true, isPresent: true, status: 'Present — Demo'),
+        DemoChecklistItem(name: 'Partial release justification', fileName: 'pcl_justification.pdf', type: 'Supporting justification', isRequired: true, isPresent: true, status: 'Present — Demo'),
+      ],
+      clearances: const [
+        ClearanceState(name: 'Grievance Redressal Cell', status: 'Cleared', remark: 'Reviewed', actionRequired: 'Review grievances.'),
+        ClearanceState(name: 'Vigilance Cell', status: 'Cleared', remark: 'Reviewed', actionRequired: 'Inspect compliance.'),
+      ],
+    );
+
+    final missing = ReleaseEligibilityService.evaluate(
+      record: partial,
+      verification: const VerificationSummary(
+        totalChecks: 0,
+        blocking: 0,
+        warnings: 0,
+        statusText: 'Demo verification passed',
+        issues: [],
+      ),
+    );
+    expect(missing.canAdvance, isFalse);
+    expect(missing.missingDocuments, contains('Institution partial release request'));
+    expect(missing.nextEligibleStage, 'Required Documents');
+
+    final restored = ReleaseEligibilityService.evaluate(
+      record: partial.copyWith(
+        checklist: const [
+          DemoChecklistItem(name: 'Institution partial release request', fileName: 'pcl_request_letter.pdf', type: 'Signed request letter', isRequired: true, isPresent: true, status: 'Present — Demo'),
+          DemoChecklistItem(name: 'Updated FDR evidence', fileName: 'pcl_fdr_copy.pdf', type: 'FDR copy', isRequired: true, isPresent: true, status: 'Present — Demo'),
+          DemoChecklistItem(name: 'Partial release justification', fileName: 'pcl_justification.pdf', type: 'Supporting justification', isRequired: true, isPresent: true, status: 'Present — Demo'),
+        ],
+      ),
+      verification: const VerificationSummary(
+        totalChecks: 0,
+        blocking: 0,
+        warnings: 0,
+        statusText: 'Demo verification passed',
+        issues: [],
+      ),
+    );
+    expect(restored.canAdvance, isTrue);
+    expect(restored.missingDocuments, isEmpty);
+  });
+
+  test('clearance decisions remain independent for each case and block approval until all cells are cleared', () {
+    final store = DemoFdrPortalStore.instance;
+    store.resetDemoData();
+    store.createReleaseCase();
+    store.updateReleaseCaseType('Progressive Closure');
+
+    final pending = store.releaseCase!.copyWith(
+      clearances: const [
+        ClearanceState(name: 'Grievance Redressal Cell', status: 'Cleared', remark: 'Reviewed', actionRequired: 'Review grievances.'),
+        ClearanceState(name: 'Vigilance Cell', status: 'Pending', remark: 'Not reviewed', actionRequired: 'Inspect compliance.'),
+      ],
+      checklist: const [
+        DemoChecklistItem(name: 'Institution partial release request', fileName: 'pcl_request_letter.pdf', type: 'Signed request letter', isRequired: true, isPresent: true, status: 'Present — Demo'),
+        DemoChecklistItem(name: 'Updated FDR evidence', fileName: 'pcl_fdr_copy.pdf', type: 'FDR copy', isRequired: true, isPresent: true, status: 'Present — Demo'),
+        DemoChecklistItem(name: 'Partial release justification', fileName: 'pcl_justification.pdf', type: 'Supporting justification', isRequired: true, isPresent: true, status: 'Present — Demo'),
+      ],
+      requestedReleaseAmount: 150000,
+      partialReleaseReason: 'Stage release',
+    );
+
+    final blocked = ReleaseEligibilityService.evaluate(
+      record: pending,
+      verification: const VerificationSummary(
+        totalChecks: 0,
+        blocking: 0,
+        warnings: 0,
+        statusText: 'Demo verification passed',
+        issues: [],
+      ),
+    );
+    expect(blocked.canAdvance, isFalse);
+    expect(blocked.pendingClearances, contains('Vigilance Cell'));
+
+    final cleared = pending.copyWith(
+      clearances: const [
+        ClearanceState(name: 'Grievance Redressal Cell', status: 'Cleared', remark: 'Reviewed', actionRequired: 'Review grievances.'),
+        ClearanceState(name: 'Vigilance Cell', status: 'Cleared', remark: 'Reviewed', actionRequired: 'Inspect compliance.'),
+      ],
+    );
+    final eligible = ReleaseEligibilityService.evaluate(
+      record: cleared,
+      verification: const VerificationSummary(
+        totalChecks: 0,
+        blocking: 0,
+        warnings: 0,
+        statusText: 'Demo verification passed',
+        issues: [],
+      ),
+    );
+    expect(eligible.canAdvance, isTrue);
+  });
+
+  test('merger approval requires all configured requirements and preserves the original FDR record', () {
+    final store = DemoFdrPortalStore.instance;
+    store.resetDemoData();
+    store.createReleaseCase();
+    store.updateReleaseCaseType('Merger');
+
+    final underReview = store.releaseCase!.copyWith(
+      successorInstitution: 'Demo University',
+      mergerReference: 'MERGER-001',
+      effectiveDate: '01 November 2026',
+      checklist: const [
+        DemoChecklistItem(name: 'Merger or amalgamation approval document', fileName: 'merger_approval.pdf', type: 'Merger approval', isRequired: true, isPresent: true, status: 'Present — Demo'),
+        DemoChecklistItem(name: 'Institution request letter', fileName: 'merger_request_letter.pdf', type: 'Institution request', isRequired: true, isPresent: true, status: 'Present — Demo'),
+        DemoChecklistItem(name: 'Original FDR copy', fileName: 'merger_original_fdr.pdf', type: 'Original FDR copy', isRequired: true, isPresent: false, status: 'Missing — Demo'),
+        DemoChecklistItem(name: 'Supporting institution records', fileName: 'merger_institution_records.pdf', type: 'Institution records', isRequired: true, isPresent: true, status: 'Present — Demo'),
+      ],
+      clearances: const [
+        ClearanceState(name: 'Grievance Redressal Cell', status: 'Cleared', remark: 'Reviewed', actionRequired: 'Review grievances.'),
+        ClearanceState(name: 'Vigilance Cell', status: 'Pending', remark: 'Not reviewed', actionRequired: 'Inspect compliance.'),
+      ],
+    );
+
+    final blocked = ReleaseEligibilityService.evaluate(
+      record: underReview,
+      verification: const VerificationSummary(
+        totalChecks: 0,
+        blocking: 0,
+        warnings: 0,
+        statusText: 'Demo verification passed',
+        issues: [],
+      ),
+      originalFdrExists: true,
+    );
+    expect(blocked.canAdvance, isFalse);
+    expect(blocked.missingDocuments, contains('Original FDR copy'));
+    expect(blocked.pendingClearances, contains('Vigilance Cell'));
+
+    store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared');
+    store.updateClearanceStatus('Vigilance Cell', 'Cleared');
+    store.updateDocumentPresence('merger_original_fdr.pdf', true);
+    store.approveMergerInDemoMode();
+
+    expect(store.releaseCase!.status, 'Merger Approved — Demo');
+    expect(store.mergerRelationships['FDR-MRG-330812'], 'Example Technical University');
+    expect(store.demoFdrRecords['FDR-MRG-330812']!.amount, 500000);
+    expect(store.demoFdrRecords['FDR-MRG-330812']!.institution, 'Example Institute of Technology');
+  });
+
+  test('audit chain catches tampered event content and broken linkage', () {
+    final store = DemoFdrPortalStore.instance;
+    store.resetDemoData();
+    store.appendAuditEntry(
+      action: 'Case type selected',
+      associatedId: 'PCL-2026-00008',
+      actorRole: 'Demo Officer',
+      payload: 'Progressive Closure',
+    );
+
+    final valid = verifyAuditChain(store.auditEntries);
+    expect(valid.isValid, isTrue);
+
+    final tamperedAction = store.auditEntries.last.copyWith(action: 'Approval forged');
+    final tamperedEntry = tamperedAction.copyWith(
+      entryHash: 'TAMPERED-${tamperedAction.eventId}',
+    );
+    final alteredEntries = [...store.auditEntries.sublist(0, store.auditEntries.length - 1), tamperedEntry];
+    final tamperedResult = verifyAuditChain(alteredEntries);
+    expect(tamperedResult.isValid, isFalse);
+    expect(tamperedResult.invalidEntryId, isNotNull);
+
+    final brokenLinkEntries = List<AuditEntry>.from(store.auditEntries);
+    brokenLinkEntries[1] = brokenLinkEntries[1].copyWith(previousHash: 'BROKEN-LINK');
+    final brokenLinkResult = verifyAuditChain(brokenLinkEntries);
+    expect(brokenLinkResult.isValid, isFalse);
   });
 }

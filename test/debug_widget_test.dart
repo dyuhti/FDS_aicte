@@ -19,8 +19,8 @@ void main() {
     debugPrint('AFTER REVIEW');
     debugDumpApp();
 
-    print('Has text Submitted Documents? ${find.text('Submitted Documents').evaluate().length}');
-    print('Has text FDR Verification? ${find.text('FDR Verification').evaluate().length}');
-    print('Has text Institution Details? ${find.text('Institution Details').evaluate().length}');
+    debugPrint('Has text Submitted Documents? ${find.text('Submitted Documents').evaluate().length}');
+    debugPrint('Has text FDR Verification? ${find.text('FDR Verification').evaluate().length}');
+    debugPrint('Has text Institution Details? ${find.text('Institution Details').evaluate().length}');
   });
 }

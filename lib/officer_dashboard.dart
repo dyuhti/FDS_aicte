@@ -11,24 +11,32 @@ const _muted = Color(0xFF6B7280);
 const _line = Color(0xFFEAE6E1);
 const _paper = Color(0xFFFFFBF7);
 
-enum VerificationStatus { pending, approved, rejected }
+enum VerificationStatus { pending, blocked, verified, approved, rejected }
+
+enum DemoVerificationScenario { blocked, resolved }
 
 class FdrSubmission {
   const FdrSubmission({
     required this.institution,
+    required this.institutionId,
     required this.submissionId,
     required this.submittedOn,
     required this.reference,
     required this.amount,
     required this.status,
+    this.approvedAt,
+    this.approvedBy,
   });
 
   final String institution;
+  final String institutionId;
   final String submissionId;
   final String submittedOn;
   final String reference;
   final String amount;
   final VerificationStatus status;
+  final DateTime? approvedAt;
+  final String? approvedBy;
 }
 
 class OfficerActivity {
@@ -46,6 +54,7 @@ class OfficerActivity {
 }
 
 abstract interface class OfficerDashboardRepository {
+  List<FdrSubmission> get submissions;
   List<FdrSubmission> get pendingSubmissions;
   List<OfficerActivity> get recentActivity;
   Map<String, int> get summary;
@@ -54,33 +63,17 @@ abstract interface class OfficerDashboardRepository {
 class MockOfficerDashboardRepository implements OfficerDashboardRepository {
   const MockOfficerDashboardRepository();
 
+    @override
+    List<FdrSubmission> get submissions =>
+      DemoFdrPortalStore.instance.dashboardSubmissions;
+
   @override
-  List<FdrSubmission> get pendingSubmissions => const [
-    FdrSubmission(
-      institution: 'Example Institute of Technology',
-      submissionId: 'FDR-2026-00124',
-      submittedOn: '24 Oct 2026',
-      reference: 'FDR-EX-884201',
-      amount: '₹5,00,000',
-      status: VerificationStatus.pending,
-    ),
-    FdrSubmission(
-      institution: 'National College of Engineering',
-      submissionId: 'FDR-2026-00125',
-      submittedOn: '23 Oct 2026',
-      reference: 'FDR-NC-550318',
-      amount: '₹3,00,000',
-      status: VerificationStatus.pending,
-    ),
-    FdrSubmission(
-      institution: 'Metropolitan Institute of Science',
-      submissionId: 'FDR-2026-00126',
-      submittedOn: '22 Oct 2026',
-      reference: 'FDR-MI-719643',
-      amount: '₹7,50,000',
-      status: VerificationStatus.pending,
-    ),
-  ];
+  List<FdrSubmission> get pendingSubmissions =>
+      submissions
+          .where((submission) =>
+              submission.status == VerificationStatus.pending ||
+              submission.status == VerificationStatus.blocked)
+          .toList(growable: false);
 
   @override
   List<OfficerActivity> get recentActivity => const [
@@ -105,12 +98,24 @@ class MockOfficerDashboardRepository implements OfficerDashboardRepository {
   ];
 
   @override
-  Map<String, int> get summary => const {
-    'Pending Review': 12,
-    'Approved': 48,
-    'Rejected': 3,
-    'Total Institutions': 63,
-  };
+  Map<String, int> get summary {
+    final store = DemoFdrPortalStore.instance;
+    final submissions = store.dashboardSubmissions;
+    return {
+      'Pending Review': submissions
+          .where((submission) =>
+              submission.status == VerificationStatus.pending ||
+              submission.status == VerificationStatus.blocked)
+          .length,
+        'Approved': submissions
+          .where((submission) => submission.status == VerificationStatus.approved)
+          .length,
+      'Rejected': submissions
+          .where((submission) => submission.status == VerificationStatus.rejected)
+          .length,
+      'Total Institutions': store.institutionRegistry.length,
+    };
+  }
 }
 
 class OfficerDashboardScreen extends StatefulWidget {
@@ -151,99 +156,26 @@ class _OfficerDashboardScreenState extends State<OfficerDashboardScreen> {
   Widget build(BuildContext context) {
     final isHome = _selectedTab == 0;
     final title = _destinations[_selectedTab];
-    return Scaffold(
-      backgroundColor: _paper,
-      appBar: AppBar(
-        backgroundColor: _paper,
-        surfaceTintColor: _paper,
-        titleSpacing: 12,
-        title: Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF1E4),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.account_balance_rounded,
-                color: _deepOrange,
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'AICTE Officer Portal',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: _ink,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Security Deposit Management',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: _muted, fontSize: 10),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Notifications',
-            onPressed: () => _openPage(
-              'Notifications',
-              subtitle: 'No live notification service is connected in demo mode.',
-            ),
-            icon: const _NotificationIcon(),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'Officer profile',
-            onSelected: (value) {
-              if (value == 'profile') {
-                setState(() => _selectedTab = 3);
-              } else {
-                widget.onSignOut();
-              }
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'profile', child: Text('Profile settings')),
-              PopupMenuItem(value: 'signout', child: Text('Sign out')),
-            ],
-            child: Padding(
-              padding: const EdgeInsets.only(right: 14, left: 4),
-              child: CircleAvatar(
-                radius: 17,
-                backgroundColor: const Color(0xFFFFE8D5),
-                child: Text(
-                  _initials(widget.userId),
-                  style: const TextStyle(
-                    color: _deepOrange,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+    return OfficerPortalShell(
+      userId: widget.userId,
+      onNotifications: () => _openPage(
+        'Notifications',
+        subtitle: 'No live notification service is connected in demo mode.',
       ),
+      onProfile: () => setState(() => _selectedTab = 3),
+      onSignOut: widget.onSignOut,
       body: isHome
-          ? _DashboardHome(
+          ? AnimatedBuilder(
+              animation: DemoFdrPortalStore.instance,
+              builder: (context, _) => _DashboardHome(
+                repository: widget.repository,
+                onOpenPage: _openPage,
+              ),
+            )
+          : _selectedTab == 1
+          ? _SubmissionListView(
               repository: widget.repository,
-              onOpenPage: _openPage,
+              initialFilter: SubmissionListFilter.all,
             )
           : _DestinationBody(
               title: title,
@@ -264,6 +196,171 @@ class _OfficerDashboardScreenState extends State<OfficerDashboardScreen> {
       ),
     );
   }
+}
+
+class OfficerPortalShell extends StatelessWidget {
+  const OfficerPortalShell({
+    super.key,
+    required this.body,
+    this.title,
+    this.userId = 'officer',
+    this.onNotifications,
+    this.onProfile,
+    this.onSignOut,
+    this.onBack,
+    this.bottomNavigationBar,
+  });
+
+  final Widget body;
+  final String? title;
+  final String userId;
+  final VoidCallback? onNotifications;
+  final VoidCallback? onProfile;
+  final VoidCallback? onSignOut;
+  final VoidCallback? onBack;
+  final Widget? bottomNavigationBar;
+
+  void _showDemoMessage(BuildContext context, String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: _paper,
+    resizeToAvoidBottomInset: true,
+    body: Column(
+      children: [
+        SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              SizedBox(
+                height: 58,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 16, right: 4),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF1E4),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.account_balance_rounded,
+                          color: _deepOrange,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'AICTE Officer Portal',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: _ink,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Security Deposit Management',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(color: _muted, fontSize: 10),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Notifications',
+                        onPressed: onNotifications ?? () => _showDemoMessage(
+                          context,
+                          'Notifications are demo-only. No live notification service is connected.',
+                        ),
+                        icon: const _NotificationIcon(),
+                      ),
+                      PopupMenuButton<String>(
+                        tooltip: 'Officer profile',
+                        onSelected: (value) {
+                          if (value == 'profile') {
+                            onProfile?.call();
+                            if (onProfile == null) {
+                              _showDemoMessage(context, 'Profile settings are demo-only. No backend profile is connected.');
+                            }
+                          } else if (value == 'signout') {
+                            onSignOut?.call();
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(value: 'profile', child: Text('Profile settings')),
+                          if (onSignOut != null)
+                            const PopupMenuItem(value: 'signout', child: Text('Sign out')),
+                        ],
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 10, left: 2),
+                          child: CircleAvatar(
+                            radius: 17,
+                            backgroundColor: const Color(0xFFFFE8D5),
+                            child: Text(
+                              _initials(userId),
+                              style: const TextStyle(
+                                color: _deepOrange,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (title != null)
+                SizedBox(
+                  height: 48,
+                  child: Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Back',
+                        onPressed: onBack ?? () => Navigator.of(context).maybePop(),
+                        icon: const Icon(Icons.arrow_back_rounded),
+                      ),
+                      Expanded(
+                        child: Text(
+                          title!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: _ink,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                  ),
+                ),
+              const Divider(height: 1, thickness: 1, color: _line),
+            ],
+          ),
+        ),
+        Expanded(child: SafeArea(top: false, child: body)),
+      ],
+    ),
+    bottomNavigationBar: bottomNavigationBar,
+  );
 }
 
 class _DashboardHome extends StatelessWidget {
@@ -302,7 +399,7 @@ class _DashboardHome extends StatelessWidget {
                   const SizedBox(height: 14),
                   const _DemoNotice(),
                   const SizedBox(height: 18),
-                  _SectionHeading(title: 'Overview', trailing: 'Sample data'),
+                  _SectionHeading(title: 'Overview', trailing: 'Live demo state'),
                   const SizedBox(height: 10),
                   LayoutBuilder(
                     builder: (context, gridConstraints) => GridView.count(
@@ -313,10 +410,10 @@ class _DashboardHome extends StatelessWidget {
                       crossAxisSpacing: 10,
                       childAspectRatio: gridConstraints.maxWidth < 380 ? 3.0 : 1.72,
                       children: [
-                        _MetricCard(label: 'Pending Review', value: repository.summary['Pending Review']!, note: 'Awaiting verification', icon: Icons.schedule_rounded, color: const Color(0xFFD97706), onTap: () => onOpenPage('Pending Review', subtitle: 'Sample submissions awaiting officer verification.')),
-                        _MetricCard(label: 'Approved', value: repository.summary['Approved']!, note: 'Successfully verified', icon: Icons.verified_rounded, color: const Color(0xFF16A34A), onTap: () => onOpenPage('Approved Submissions', subtitle: 'Mock approved entries. No real FDR records are connected.')),
-                        _MetricCard(label: 'Rejected', value: repository.summary['Rejected']!, note: 'Requires correction', icon: Icons.cancel_outlined, color: const Color(0xFFDC2626), onTap: () => onOpenPage('Returned for Correction', subtitle: 'Mock records requiring institution updates.')),
-                        _MetricCard(label: 'Total Institutions', value: repository.summary['Total Institutions']!, note: 'Registered institutions', icon: Icons.account_balance_outlined, color: _orange, onTap: () => onOpenPage('Institution Registry', subtitle: 'Sample registry view. Live institution data is not connected.')),
+                        _MetricCard(label: 'Pending Review', value: repository.summary['Pending Review']!, note: 'Awaiting FDR verification', icon: Icons.schedule_rounded, color: const Color(0xFFD97706), onTap: () => onOpenPage('Pending Review', subtitle: 'Demo submissions awaiting FDR verification.')),
+                        _MetricCard(label: 'Approved', value: repository.summary['Approved']!, note: 'Final approval reached', icon: Icons.verified_rounded, color: const Color(0xFF16A34A), onTap: () => onOpenPage('Approved Submissions', subtitle: 'Demo cases that reached an approval state.')),
+                        _MetricCard(label: 'Rejected', value: repository.summary['Rejected']!, note: 'Rejected submissions', icon: Icons.cancel_outlined, color: const Color(0xFFDC2626), onTap: () => onOpenPage('Returned for Correction', subtitle: 'Demo submissions genuinely marked rejected.')),
+                        _MetricCard(label: 'Total Institutions', value: repository.summary['Total Institutions']!, note: 'Unique registered institutions', icon: Icons.account_balance_outlined, color: _orange, onTap: () => onOpenPage('Institution Registry', subtitle: 'Demo institution registry.')),
                       ],
                     ),
                   ),
@@ -455,6 +552,7 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Material(
+    key: ValueKey('metric:$label'),
     color: Colors.white,
     borderRadius: BorderRadius.circular(15),
     child: InkWell(
@@ -527,7 +625,7 @@ class _SubmissionCard extends StatelessWidget {
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Expanded(child: Text(submission.institution, style: const TextStyle(color: _ink, fontSize: 13, fontWeight: FontWeight.w700, height: 1.3))),
           const SizedBox(width: 8),
-          const _StatusBadge(status: VerificationStatus.pending),
+          _StatusBadge(status: submission.status),
         ]),
         const SizedBox(height: 9),
         Wrap(spacing: 14, runSpacing: 5, children: [
@@ -584,16 +682,22 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = switch (status) {
       VerificationStatus.pending => const Color(0xFFB45309),
+      VerificationStatus.blocked => const Color(0xFFB91C1C),
+      VerificationStatus.verified => const Color(0xFF15803D),
       VerificationStatus.approved => const Color(0xFF15803D),
       VerificationStatus.rejected => const Color(0xFFB91C1C),
     };
     final background = switch (status) {
       VerificationStatus.pending => const Color(0xFFFFF7E8),
+      VerificationStatus.blocked => const Color(0xFFFEF2F2),
+      VerificationStatus.verified => const Color(0xFFF0FDF4),
       VerificationStatus.approved => const Color(0xFFF0FDF4),
       VerificationStatus.rejected => const Color(0xFFFEF2F2),
     };
     final label = switch (status) {
       VerificationStatus.pending => 'Pending Review',
+      VerificationStatus.blocked => 'Blocked',
+      VerificationStatus.verified => 'Verified',
       VerificationStatus.approved => 'Approved',
       VerificationStatus.rejected => 'Correction',
     };
@@ -634,6 +738,8 @@ class _ActivityRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = switch (activity.status) {
       VerificationStatus.pending => const Color(0xFFD97706),
+      VerificationStatus.blocked => const Color(0xFFB91C1C),
+      VerificationStatus.verified => const Color(0xFF15803D),
       VerificationStatus.approved => const Color(0xFF16A34A),
       VerificationStatus.rejected => const Color(0xFFDC2626),
     };
@@ -695,18 +801,197 @@ class _DestinationPage extends StatelessWidget {
   final String? subtitle;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: _paper,
-    appBar: AppBar(title: Text(title), backgroundColor: _paper, surfaceTintColor: _paper),
-    body: _DestinationBody(
+  Widget build(BuildContext context) {
+    final filter = switch (title) {
+      'Pending Review' || 'Pending Verification' => SubmissionListFilter.pending,
+      'Approved Submissions' => SubmissionListFilter.approved,
+      'Returned for Correction' => SubmissionListFilter.rejected,
+      _ => SubmissionListFilter.all,
+    };
+    final isSubmissionList = title == 'Submissions' ||
+        title == 'Pending Review' ||
+        title == 'Pending Verification' ||
+        title == 'Approved Submissions' ||
+        title == 'Returned for Correction';
+    return OfficerPortalShell(
       title: title,
-      subtitle: subtitle ?? 'This destination is prepared for the connected portal workflow.',
-      onOpenPage: (nextTitle, {subtitle}) => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => _DestinationPage(title: nextTitle, subtitle: subtitle)),
-      ),
+      body: isSubmissionList
+          ? _SubmissionListView(
+              repository: const MockOfficerDashboardRepository(),
+              initialFilter: filter,
+            )
+          : _DestinationBody(
+              title: title,
+              subtitle: subtitle ?? 'This destination is prepared for the connected portal workflow.',
+              onOpenPage: (nextTitle, {subtitle}) => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => _DestinationPage(title: nextTitle, subtitle: subtitle)),
+              ),
+            ),
+    );
+  }
+}
+
+enum SubmissionListFilter { all, pending, approved, rejected }
+
+class _SubmissionListView extends StatefulWidget {
+  const _SubmissionListView({
+    required this.repository,
+    required this.initialFilter,
+  });
+
+  final OfficerDashboardRepository repository;
+  final SubmissionListFilter initialFilter;
+
+  @override
+  State<_SubmissionListView> createState() => _SubmissionListViewState();
+}
+
+class _SubmissionListViewState extends State<_SubmissionListView> {
+  late SubmissionListFilter _filter = widget.initialFilter;
+
+  List<FdrSubmission> _matching(SubmissionListFilter filter) {
+    final records = widget.repository.submissions;
+    return switch (filter) {
+      SubmissionListFilter.all => records,
+      SubmissionListFilter.pending => records
+          .where((submission) =>
+              submission.status == VerificationStatus.pending ||
+              submission.status == VerificationStatus.blocked)
+          .toList(growable: false),
+      SubmissionListFilter.approved => records
+          .where((submission) => submission.status == VerificationStatus.approved)
+          .toList(growable: false),
+      SubmissionListFilter.rejected => records
+          .where((submission) => submission.status == VerificationStatus.rejected)
+          .toList(growable: false),
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: DemoFdrPortalStore.instance,
+    builder: (context, _) {
+      final all = _matching(SubmissionListFilter.all);
+      final pending = _matching(SubmissionListFilter.pending);
+      final approved = _matching(SubmissionListFilter.approved);
+      final rejected = _matching(SubmissionListFilter.rejected);
+      final visible = _matching(_filter);
+      return SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(18, 12, 18, 8),
+              child: _DemoNotice(),
+            ),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+              child: SegmentedButton<SubmissionListFilter>(
+                segments: [
+                  ButtonSegment(value: SubmissionListFilter.all, label: Text('All (${all.length})')),
+                  ButtonSegment(value: SubmissionListFilter.pending, label: Text('Pending Review (${pending.length})')),
+                  ButtonSegment(value: SubmissionListFilter.approved, label: Text('Approved (${approved.length})')),
+                  ButtonSegment(value: SubmissionListFilter.rejected, label: Text('Rejected (${rejected.length})')),
+                ],
+                selected: {_filter},
+                onSelectionChanged: (selected) => setState(() => _filter = selected.single),
+                style: SegmentedButton.styleFrom(
+                  selectedBackgroundColor: const Color(0xFFFFE8D5),
+                  selectedForegroundColor: _deepOrange,
+                ),
+              ),
+            ),
+            Expanded(
+              child: visible.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(_filter == SubmissionListFilter.approved
+                                ? Icons.verified_outlined
+                                : Icons.inbox_outlined, color: _muted, size: 38),
+                            const SizedBox(height: 10),
+                            Text(
+                              switch (_filter) {
+                                SubmissionListFilter.approved => 'No approved submissions',
+                                SubmissionListFilter.pending => 'No submissions awaiting review',
+                                SubmissionListFilter.rejected => 'No rejected submissions',
+                                SubmissionListFilter.all => 'No submissions',
+                              },
+                              style: const TextStyle(color: _ink, fontSize: 16, fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text('Demo records will appear here when their status changes.', textAlign: TextAlign.center, style: TextStyle(color: _muted, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
+                      itemCount: visible.length,
+                      separatorBuilder: (context, index) => const SizedBox(height: 9),
+                      itemBuilder: (context, index) => _SubmissionRecordCard(
+                        submission: visible[index],
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _SubmissionRecordCard extends StatelessWidget {
+  const _SubmissionRecordCard({required this.submission});
+
+  final FdrSubmission submission;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: _line),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(child: Text(submission.institution, style: const TextStyle(color: _ink, fontSize: 14, fontWeight: FontWeight.w700))),
+          const SizedBox(width: 8),
+          _StatusBadge(status: submission.status),
+        ]),
+        const SizedBox(height: 10),
+        _DetailPair(label: 'Submission', value: submission.submissionId),
+        const SizedBox(height: 5),
+        _DetailPair(label: 'FDR reference', value: submission.reference),
+        const SizedBox(height: 5),
+        _DetailPair(label: 'Deposit', value: submission.amount, emphasized: true),
+        if (submission.approvedAt != null) ...[
+          const SizedBox(height: 5),
+          _DetailPair(label: 'Approved', value: _shortDate(submission.approvedAt!)),
+        ],
+        if (submission.approvedBy != null) ...[
+          const SizedBox(height: 5),
+          _DetailPair(label: 'Action', value: 'Demo approval by ${submission.approvedBy}'),
+        ],
+      ],
     ),
   );
 }
+
+String _shortDate(DateTime value) =>
+    '${value.day.toString().padLeft(2, '0')} ${_monthName(value.month)} ${value.year}';
+
+String _monthName(int month) => const [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+][month - 1];
 
 String _initials(String value) {
   final parts = value.split(RegExp(r'[@._\-\s]+')).where((part) => part.isNotEmpty).toList();
@@ -730,12 +1015,63 @@ IconData _tabIcon(String title) => switch (title) {
   _ => Icons.dashboard_outlined,
 };
 
-class DemoFdrPortalStore {
+class DemoFdrPortalStore extends ChangeNotifier {
   DemoFdrPortalStore._();
 
   static final DemoFdrPortalStore instance = DemoFdrPortalStore._();
 
-  FdrRecord _currentSubmission = const FdrRecord(
+  FdrRecord _currentSubmission = _blockedSubmission;
+
+  final List<FdrSubmission> _dashboardSubmissions = [
+    const FdrSubmission(
+      institution: 'Example Institute of Technology',
+      institutionId: 'INST-00042',
+      submissionId: 'FDR-2026-00124',
+      submittedOn: '24 Oct 2026',
+      reference: 'FDR-EX-884201',
+      amount: '₹5,00,000',
+      status: VerificationStatus.pending,
+    ),
+    const FdrSubmission(
+      institution: 'National College of Engineering',
+      institutionId: 'INST-00125',
+      submissionId: 'FDR-2026-00125',
+      submittedOn: '23 Oct 2026',
+      reference: 'FDR-NC-550318',
+      amount: '₹3,00,000',
+      status: VerificationStatus.pending,
+    ),
+    const FdrSubmission(
+      institution: 'Metropolitan Institute of Science',
+      institutionId: 'INST-00126',
+      submissionId: 'FDR-2026-00126',
+      submittedOn: '22 Oct 2026',
+      reference: 'FDR-MI-719643',
+      amount: '₹7,50,000',
+      status: VerificationStatus.pending,
+    ),
+  ];
+  final Map<String, String> _institutionRegistry = {
+    'INST-00042': 'Example Institute of Technology',
+    'INST-00125': 'National College of Engineering',
+    'INST-00126': 'Metropolitan Institute of Science',
+  };
+
+  VerificationSummary _lastVerification = FdrVerificationService.runVerification(_blockedSubmission);
+
+  final Map<String, DemoFdrMasterRecord> _demoFdrRecords = const {
+    'FDR-EX-884201': DemoFdrMasterRecord(institution: 'Example Institute of Technology', institutionId: 'INST-00042', fdrReference: 'FDR-EX-884201', amount: 500000),
+    'FDR-PCL-552901': DemoFdrMasterRecord(institution: 'Example Institute of Technology', institutionId: 'INST-DEMO-0042', fdrReference: 'FDR-PCL-552901', amount: 500000),
+    'FDR-MRG-330812': DemoFdrMasterRecord(institution: 'Example Institute of Technology', institutionId: 'INST-DEMO-0042', fdrReference: 'FDR-MRG-330812', amount: 500000),
+  };
+  final Map<String, ReleaseCase> _releaseCases = <String, ReleaseCase>{};
+  final Map<String, String> _mergerRelationships = <String, String>{};
+  String _selectedCaseType = 'Normal Release';
+  final List<AuditEntry> _auditEntries = <AuditEntry>[];
+  DemoVerificationScenario _verificationScenario = DemoVerificationScenario.blocked;
+  bool _verificationCurrent = true;
+
+  static const FdrRecord _blockedSubmission = FdrRecord(
     institution: 'Example Institute of Technology',
     institutionId: 'INST-00042',
     submissionId: 'FDR-2026-00124',
@@ -757,42 +1093,46 @@ class DemoFdrPortalStore {
     ],
   );
 
-  VerificationSummary _lastVerification = const VerificationSummary(
-    totalChecks: 3,
-    blocking: 2,
-    warnings: 1,
-    statusText: 'BLOCKED — 2 Blocking Discrepancies',
-    issues: [
-      VerificationIssue(
-        ruleId: 'deposit-amount',
-        severity: VerificationIssueSeverity.blocking,
-        message: 'Declared deposit amount does not match the receipt amount.',
-      ),
-      VerificationIssue(
-        ruleId: 'lien-information',
-        severity: VerificationIssueSeverity.warning,
-        message: 'Lien information requires review.',
-      ),
-      VerificationIssue(
-        ruleId: 'duplicate-fdr',
-        severity: VerificationIssueSeverity.blocking,
-        message: 'This FDR number already appears in another institution\'s record.',
-      ),
+  static const FdrRecord _resolvedSubmission = FdrRecord(
+    institution: 'Example Institute of Technology',
+    institutionId: 'INST-00042',
+    submissionId: 'FDR-2026-00124',
+    bank: 'Example National Bank',
+    fdrNumber: 'FDR-EX-884201-RESOLVED',
+    declaredDepositAmount: 500000,
+    receiptAmount: 500000,
+    issueDate: '01 October 2025',
+    maturityDate: '01 October 2028',
+    declaredTenureMonths: 36,
+    enteredTenureMonths: 36,
+    lienInformation: 'No lien; security is clear.',
+    submissionStatus: 'Pending Review',
+    documents: [
+      DemoDocument(name: 'FDR receipt', fileName: 'fdr_receipt.pdf', status: 'Uploaded — Demo'),
+      DemoDocument(name: 'Institution request letter', fileName: 'request_letter.pdf', status: 'Uploaded — Demo'),
+      DemoDocument(name: 'Affidavit', fileName: 'affidavit.pdf', status: 'Uploaded — Demo'),
+      DemoDocument(name: 'Supporting documents', fileName: 'supporting_docs.zip', status: 'Uploaded — Demo'),
     ],
   );
 
-  final Map<String, DemoFdrMasterRecord> _demoFdrRecords = const {
-    'FDR-EX-884201': DemoFdrMasterRecord(institution: 'Example Institute of Technology', institutionId: 'INST-00042', fdrReference: 'FDR-EX-884201', amount: 500000),
-    'FDR-PCL-552901': DemoFdrMasterRecord(institution: 'Example Institute of Technology', institutionId: 'INST-DEMO-0042', fdrReference: 'FDR-PCL-552901', amount: 500000),
-    'FDR-MRG-330812': DemoFdrMasterRecord(institution: 'Example Institute of Technology', institutionId: 'INST-DEMO-0042', fdrReference: 'FDR-MRG-330812', amount: 500000),
-  };
-  final Map<String, ReleaseCase> _releaseCases = <String, ReleaseCase>{};
-  final Map<String, String> _mergerRelationships = <String, String>{};
-  String _selectedCaseType = 'Normal Release';
-  final List<AuditEntry> _auditEntries = <AuditEntry>[];
-
   FdrRecord get currentSubmission => _currentSubmission;
+  List<FdrSubmission> get dashboardSubmissions =>
+      List.unmodifiable(_dashboardSubmissions);
+    Map<String, String> get institutionRegistry =>
+      Map.unmodifiable(_institutionRegistry);
+  List<ReleaseCase> get releaseCases => List.unmodifiable(_releaseCases.values);
   VerificationSummary get lastVerification => _lastVerification;
+  bool get verificationCurrent => _verificationCurrent;
+  VerificationSummary get verificationResults => _verificationCurrent
+      ? _lastVerification
+      : const VerificationSummary(
+          totalChecks: 0,
+          blocking: 0,
+          warnings: 0,
+          statusText: 'NOT RUN — Verify saved FDR details',
+          issues: [],
+        );
+  DemoVerificationScenario get verificationScenario => _verificationScenario;
   ReleaseCase? get releaseCase => _releaseCases[_selectedCaseType];
   String get selectedCaseType => _selectedCaseType;
   FdrRecord get originalFdrRecord => _currentSubmission;
@@ -801,55 +1141,54 @@ class DemoFdrPortalStore {
   List<AuditEntry> get auditEntries => List.unmodifiable(_auditEntries);
 
   void resetDemoData() {
-    _currentSubmission = const FdrRecord(
-      institution: 'Example Institute of Technology',
-      institutionId: 'INST-00042',
-      submissionId: 'FDR-2026-00124',
-      bank: 'Example National Bank',
-      fdrNumber: 'FDR-EX-884201',
-      declaredDepositAmount: 500000,
-      receiptAmount: 450000,
-      issueDate: '01 October 2025',
-      maturityDate: '01 October 2028',
-      declaredTenureMonths: 36,
-      enteredTenureMonths: 36,
-      lienInformation: 'Not provided',
-      submissionStatus: 'Pending Review',
-      documents: [
-        DemoDocument(name: 'FDR receipt', fileName: 'fdr_receipt.pdf', status: 'Uploaded — Demo'),
-        DemoDocument(name: 'Institution request letter', fileName: 'request_letter.pdf', status: 'Uploaded — Demo'),
-        DemoDocument(name: 'Affidavit', fileName: 'affidavit.pdf', status: 'Uploaded — Demo'),
-        DemoDocument(name: 'Supporting documents', fileName: 'supporting_docs.zip', status: 'Uploaded — Demo'),
-      ],
-    );
-    _lastVerification = const VerificationSummary(
-      totalChecks: 3,
-      blocking: 2,
-      warnings: 1,
-      statusText: 'BLOCKED — 2 Blocking Discrepancies',
-      issues: [
-        VerificationIssue(
-          ruleId: 'deposit-amount',
-          severity: VerificationIssueSeverity.blocking,
-          message: 'Declared deposit amount does not match the receipt amount.',
-        ),
-        VerificationIssue(
-          ruleId: 'lien-information',
-          severity: VerificationIssueSeverity.warning,
-          message: 'Lien information requires review.',
-        ),
-        VerificationIssue(
-          ruleId: 'duplicate-fdr',
-          severity: VerificationIssueSeverity.blocking,
-          message: 'This FDR number already appears in another institution\'s record.',
-        ),
-      ],
-    );
+    _verificationScenario = DemoVerificationScenario.blocked;
+    _currentSubmission = _blockedSubmission;
+    _lastVerification = FdrVerificationService.runVerification(_blockedSubmission);
+    _verificationCurrent = true;
     _releaseCases.clear();
     _mergerRelationships.clear();
     _selectedCaseType = 'Normal Release';
     _auditEntries.clear();
     _seedAudit();
+    _dashboardSubmissions
+      ..clear()
+      ..addAll([
+        const FdrSubmission(
+          institution: 'Example Institute of Technology',
+          institutionId: 'INST-00042',
+          submissionId: 'FDR-2026-00124',
+          submittedOn: '24 Oct 2026',
+          reference: 'FDR-EX-884201',
+          amount: '₹5,00,000',
+          status: VerificationStatus.pending,
+        ),
+        const FdrSubmission(
+          institution: 'National College of Engineering',
+          institutionId: 'INST-00125',
+          submissionId: 'FDR-2026-00125',
+          submittedOn: '23 Oct 2026',
+          reference: 'FDR-NC-550318',
+          amount: '₹3,00,000',
+          status: VerificationStatus.pending,
+        ),
+        const FdrSubmission(
+          institution: 'Metropolitan Institute of Science',
+          institutionId: 'INST-00126',
+          submissionId: 'FDR-2026-00126',
+          submittedOn: '22 Oct 2026',
+          reference: 'FDR-MI-719643',
+          amount: '₹7,50,000',
+          status: VerificationStatus.pending,
+        ),
+      ]);
+    _institutionRegistry
+      ..clear()
+      ..addAll({
+        'INST-00042': 'Example Institute of Technology',
+        'INST-00125': 'National College of Engineering',
+        'INST-00126': 'Metropolitan Institute of Science',
+      });
+    notifyListeners();
   }
 
   void _seedAudit() {
@@ -933,15 +1272,128 @@ class DemoFdrPortalStore {
         entryHash: entryHash,
       ),
     );
+    notifyListeners();
   }
 
   void setCurrentSubmission(FdrRecord record) {
     _currentSubmission = record;
+    _verificationCurrent = false;
+    _syncDashboardSubmission(VerificationStatus.pending);
+    final normalCase = _releaseCases['Normal Release'];
+    if (normalCase != null) {
+      _releaseCases['Normal Release'] = normalCase.copyWith(
+        submissionId: record.submissionId,
+        institution: record.institution,
+      );
+    }
+    _syncNormalReleaseStatus();
+    notifyListeners();
+  }
+
+  void setVerificationScenario(DemoVerificationScenario scenario) {
+    _verificationScenario = scenario;
+    _currentSubmission = scenario == DemoVerificationScenario.resolved
+        ? _resolvedSubmission
+        : _blockedSubmission;
+    _lastVerification = FdrVerificationService.runVerification(_currentSubmission);
+    _verificationCurrent = true;
+    _syncDashboardSubmission(_lastVerification.blocking > 0
+        ? VerificationStatus.blocked
+        : VerificationStatus.verified);
+    _syncNormalReleaseStatus();
+    notifyListeners();
   }
 
   void setLastVerification(VerificationSummary summary) {
     _lastVerification = summary;
+    _verificationCurrent = true;
+    _syncDashboardSubmission(summary.blocking > 0
+        ? VerificationStatus.blocked
+        : VerificationStatus.verified);
+    _syncNormalReleaseStatus();
+    notifyListeners();
   }
+
+  void _syncDashboardSubmission(VerificationStatus status) {
+    final recordStatus = switch (status) {
+      VerificationStatus.pending => 'Pending Review',
+      VerificationStatus.blocked => 'Blocked — FDR Verification',
+      VerificationStatus.verified => 'FDR Verified — Awaiting Release Review',
+      VerificationStatus.approved => 'Approved',
+      VerificationStatus.rejected => 'Rejected',
+    };
+    _currentSubmission = _currentSubmission.copyWith(
+      submissionStatus: recordStatus,
+    );
+    final index = _dashboardSubmissions.indexWhere(
+        (submission) => submission.submissionId == _currentSubmission.submissionId);
+    final existing = index == -1 ? null : _dashboardSubmissions[index];
+    final updated = FdrSubmission(
+      institution: _currentSubmission.institution,
+      institutionId: existing?.institutionId ?? _currentSubmission.institutionId,
+      submissionId: _currentSubmission.submissionId,
+      submittedOn: existing?.submittedOn ?? '25 Oct 2026',
+      reference: _currentSubmission.fdrNumber,
+      amount: '₹${_formatCurrency(_currentSubmission.declaredDepositAmount)}',
+      status: status,
+    );
+    if (index == -1) {
+      _dashboardSubmissions.insert(0, updated);
+    } else {
+      _dashboardSubmissions[index] = updated;
+    }
+    if (updated.institutionId.isNotEmpty) {
+      _institutionRegistry[updated.institutionId] = updated.institution;
+    }
+  }
+
+  void _approveSubmissionForCase(ReleaseCase record) {
+    final index = _dashboardSubmissions.indexWhere(
+      (submission) => submission.submissionId == record.submissionId,
+    );
+    if (index == -1) return;
+    final submission = _dashboardSubmissions[index];
+    if (submission.status == VerificationStatus.approved) return;
+    final approvedAt = DateTime.now();
+    _dashboardSubmissions[index] = FdrSubmission(
+      institution: submission.institution,
+      institutionId: submission.institutionId,
+      submissionId: submission.submissionId,
+      submittedOn: submission.submittedOn,
+      reference: submission.reference,
+      amount: submission.amount,
+      status: VerificationStatus.approved,
+      approvedAt: approvedAt,
+      approvedBy: 'Demo Officer',
+    );
+    if (_currentSubmission.submissionId == submission.submissionId) {
+      _currentSubmission = _currentSubmission.copyWith(
+        submissionStatus: 'Approved — Demo',
+      );
+    }
+  }
+
+  VerificationSummary runCurrentVerification() {
+    final summary = FdrVerificationService.runVerification(_currentSubmission);
+    setLastVerification(summary);
+    return summary;
+  }
+
+  VerificationSummary get verificationForEligibility => _verificationCurrent
+      ? _lastVerification
+      : const VerificationSummary(
+          totalChecks: 1,
+          blocking: 1,
+          warnings: 0,
+          statusText: 'VERIFICATION REQUIRED',
+          issues: [
+            VerificationIssue(
+              ruleId: 'verification-required',
+              severity: VerificationIssueSeverity.blocking,
+              message: 'Run verification after saving corrected FDR details.',
+            ),
+          ],
+        );
 
   void createReleaseCase() {
     _selectedCaseType = 'Normal Release';
@@ -1000,6 +1452,31 @@ class DemoFdrPortalStore {
       mergerReference: 'MERGER-2026-0019',
       effectiveDate: '01 November 2026',
     ));
+    _syncNormalReleaseStatus();
+    notifyListeners();
+  }
+
+  void _syncNormalReleaseStatus() {
+    final currentCase = _releaseCases['Normal Release'];
+    if (currentCase == null ||
+        (currentCase.status == 'NOC Issued — Demo' && _verificationCurrent)) {
+      return;
+    }
+
+    final eligibility = ReleaseEligibilityService.evaluate(
+      record: currentCase,
+      verification: verificationForEligibility,
+    );
+    final status = !_verificationCurrent
+        ? 'Verification Required'
+        : _lastVerification.blocking > 0
+        ? 'Blocked — FDR Verification'
+        : eligibility.missingDocuments.isNotEmpty
+        ? 'Awaiting Required Documents'
+        : eligibility.pendingClearances.isNotEmpty
+        ? 'Awaiting Clearances'
+        : 'Ready for Final NOC';
+    _releaseCases['Normal Release'] = currentCase.copyWith(status: status);
   }
 
   static List<ClearanceState> _newDemoClearances() => const [
@@ -1020,6 +1497,8 @@ class DemoFdrPortalStore {
     final clearances = [...currentCase.clearances];
     clearances[index] = updated;
     _releaseCases[_selectedCaseType] = currentCase.copyWith(clearances: clearances);
+    _syncNormalReleaseStatus();
+    notifyListeners();
   }
 
   void updateDocumentPresence(String fileName, bool isPresent) {
@@ -1029,26 +1508,39 @@ class DemoFdrPortalStore {
         ? item.copyWith(isPresent: isPresent, status: isPresent ? 'Present — Demo' : 'Missing — Demo')
         : item).toList();
     _releaseCases[_selectedCaseType] = currentCase.copyWith(checklist: checklist);
+    _syncNormalReleaseStatus();
+    notifyListeners();
   }
 
   void updateReleaseCaseType(String caseType) {
     if (!_releaseCases.containsKey(caseType)) createReleaseCase();
     _selectedCaseType = caseType;
+    notifyListeners();
   }
 
   void issueDemoNoc() {
     final currentCase = releaseCase;
-    if (currentCase == null) return;
+    if (currentCase == null ||
+        currentCase.caseType != 'Normal Release' ||
+        currentCase.status == 'NOC Issued — Demo' ||
+        !ReleaseEligibilityService.evaluate(
+          record: currentCase,
+          verification: verificationForEligibility,
+        ).canAdvance) {
+      return;
+    }
     _releaseCases[_selectedCaseType] = currentCase.copyWith(status: 'NOC Issued — Demo');
+    notifyListeners();
   }
 
   void updateProgressiveClosure({int? requestedAmount, String? reason}) {
     final currentCase = releaseCase;
     if (currentCase == null || currentCase.caseType != 'Progressive Closure') return;
     _releaseCases[_selectedCaseType] = currentCase.copyWith(
-      requestedReleaseAmount: requestedAmount,
-      partialReleaseReason: reason,
+      requestedReleaseAmount: requestedAmount ?? currentCase.requestedReleaseAmount,
+      partialReleaseReason: reason ?? currentCase.partialReleaseReason,
     );
+    notifyListeners();
   }
 
   void updateMergerDetails({String? successorInstitution, String? mergerReference, String? effectiveDate}) {
@@ -1059,6 +1551,7 @@ class DemoFdrPortalStore {
       mergerReference: mergerReference,
       effectiveDate: effectiveDate,
     );
+    notifyListeners();
   }
 
   void approveProgressiveClosureInDemoMode() {
@@ -1079,6 +1572,8 @@ class DemoFdrPortalStore {
       return;
     }
     _releaseCases[_selectedCaseType] = currentCase.copyWith(status: 'Partial Release Approved — Demo');
+    _approveSubmissionForCase(currentCase);
+    notifyListeners();
   }
 
   void approveMergerInDemoMode() {
@@ -1101,6 +1596,8 @@ class DemoFdrPortalStore {
     }
     _mergerRelationships[currentCase.originalFdrReference] = currentCase.successorInstitution;
     _releaseCases[_selectedCaseType] = currentCase.copyWith(status: 'Merger Approved — Demo');
+    _approveSubmissionForCase(currentCase);
+    notifyListeners();
   }
 
   static String _computeHash(String value) {
@@ -1207,11 +1704,15 @@ class VerificationIssue {
     required this.ruleId,
     required this.severity,
     required this.message,
+    this.description = '',
+    this.recommendedAction = '',
   });
 
   final String ruleId;
   final VerificationIssueSeverity severity;
   final String message;
+  final String description;
+  final String recommendedAction;
 }
 
 enum VerificationIssueSeverity { blocking, warning, passed }
@@ -1452,19 +1953,27 @@ AuditIntegrityResult verifyAuditChain(Iterable<AuditEntry> entries) {
 }
 
 class FdrVerificationService {
-  static final Map<String, String> _duplicateRegistry = {
-    'FDR-EX-884201': 'National College of Engineering',
+  static final Map<String, DemoFdrMasterRecord> _duplicateRegistry = {
+    'FDR-EX-884201': const DemoFdrMasterRecord(
+      institution: 'National College of Engineering',
+      institutionId: 'INST-00110',
+      fdrReference: 'FDR-EX-884201',
+      amount: 500000,
+    ),
   };
 
   static VerificationSummary runVerification(FdrRecord record) {
     final issues = <VerificationIssue>[];
 
+    final amountDifference = (record.declaredDepositAmount - record.receiptAmount).abs();
     if (record.declaredDepositAmount != record.receiptAmount) {
       issues.add(
-        const VerificationIssue(
+        VerificationIssue(
           ruleId: 'deposit-amount',
           severity: VerificationIssueSeverity.blocking,
-          message: 'Declared deposit amount does not match the receipt amount.',
+          message: 'Declared deposit amount does not match the receipt amount. Difference: ₹${_formatCurrency(amountDifference)}.',
+          description: 'The institution-declared deposit amount differs from the receipt amount recorded for the FDR.',
+          recommendedAction: 'Review the declared and receipt values side-by-side and correct the disputed amount before release approval.',
         ),
       );
     }
@@ -1476,17 +1985,21 @@ class FdrVerificationService {
           ruleId: 'lien-information',
           severity: VerificationIssueSeverity.warning,
           message: 'Lien information requires review.',
+          description: 'Lien information is missing or marked as not provided for this FDR.',
+          recommendedAction: 'Confirm whether a lien exists and update the record before final approval.',
         ),
       );
     }
 
-    final duplicateInstitution = _duplicateRegistry[record.fdrNumber];
-    if (duplicateInstitution != null && duplicateInstitution != record.institution) {
+    final duplicateRecord = _duplicateRegistry[record.fdrNumber];
+    if (duplicateRecord != null && duplicateRecord.institution != record.institution) {
       issues.add(
         VerificationIssue(
           ruleId: 'duplicate-fdr',
           severity: VerificationIssueSeverity.blocking,
-          message: 'This FDR number already appears in another institution\'s record.',
+          message: 'This FDR number already belongs to ${duplicateRecord.institution} under record ${duplicateRecord.fdrReference}.',
+          description: 'The FDR reference clashes with a different institution in the demo dataset.',
+          recommendedAction: 'Correct the FDR reference to a unique value or resolve the duplicate record before release approval.',
         ),
       );
     }
@@ -1526,6 +2039,32 @@ class ReleaseEligibility {
 }
 
 class ReleaseEligibilityService {
+  static String? validateRequestedAmount(
+    String? rawValue, {
+    required int originalFdrAmount,
+    required int availableBalance,
+  }) {
+    final sanitized = rawValue?.trim() ?? '';
+    if (sanitized.isEmpty) {
+      return 'Requested release amount is required.';
+    }
+
+    final parsedValue = int.tryParse(sanitized);
+    if (parsedValue == null) {
+      return 'Requested release amount must be numeric.';
+    }
+    if (parsedValue <= 0) {
+      return 'Requested release amount must be greater than zero.';
+    }
+    if (parsedValue > originalFdrAmount) {
+      return 'Requested release amount cannot exceed the original FDR amount.';
+    }
+    if (parsedValue > availableBalance) {
+      return 'Requested release amount cannot exceed the currently available balance.';
+    }
+    return null;
+  }
+
   static ReleaseEligibility evaluate({
     required ReleaseCase record,
     required VerificationSummary verification,
@@ -1550,10 +2089,17 @@ class ReleaseEligibilityService {
     if (pendingClearances.isNotEmpty) blockers.add('Every required cell clearance must be marked cleared.');
 
     if (record.caseType == 'Progressive Closure') {
-      if (record.requestedReleaseAmount <= 0) blockers.add('Requested release amount must be greater than zero.');
-      if (record.requestedReleaseAmount > record.originalFdrAmount) blockers.add('Requested release amount cannot exceed the original FDR amount.');
-      if (record.requestedReleaseAmount > record.availableBalance) blockers.add('Requested release amount cannot exceed the currently available balance.');
-      if (record.retainedBalance < 0) blockers.add('Retained balance cannot be negative.');
+      final amountValidationError = validateRequestedAmount(
+        record.requestedReleaseAmount.toString(),
+        originalFdrAmount: record.originalFdrAmount,
+        availableBalance: record.availableBalance,
+      );
+      if (amountValidationError != null) {
+        blockers.add(amountValidationError);
+      }
+      if (record.retainedBalance < 0) {
+        blockers.add('Retained balance cannot be negative.');
+      }
       if (record.partialReleaseReason.trim().isEmpty) blockers.add('A reason for partial release is required.');
     } else if (record.caseType == 'Merger') {
       if (!originalFdrExists || record.originalFdrReference.trim().isEmpty || record.originalFdrAmount <= 0) blockers.add('The original FDR record could not be verified.');
@@ -1722,14 +2268,22 @@ class _FdrVerificationDetailPageState extends State<_FdrVerificationDetailPage> 
     await Future<void>.delayed(const Duration(milliseconds: 900));
     if (!mounted) return;
 
-    final summary = FdrVerificationService.runVerification(DemoFdrPortalStore.instance.currentSubmission);
-    DemoFdrPortalStore.instance.setLastVerification(summary);
+    final summary = DemoFdrPortalStore.instance.runCurrentVerification();
     DemoFdrPortalStore.instance.appendAuditEntry(
       action: 'Verification initiated',
       associatedId: DemoFdrPortalStore.instance.currentSubmission.submissionId,
       actorRole: 'Demo Officer',
       payload: summary.statusText,
     );
+    if (DemoFdrPortalStore.instance.releaseCase == null) {
+      DemoFdrPortalStore.instance.createReleaseCase();
+      DemoFdrPortalStore.instance.appendAuditEntry(
+        action: 'Release case created',
+        associatedId: 'REL-2026-00017',
+        actorRole: 'Demo Officer',
+        payload: 'Normal Release',
+      );
+    }
     if (!mounted) return;
     setState(() => _isRunning = false);
     Navigator.of(context).push(
@@ -1740,13 +2294,8 @@ class _FdrVerificationDetailPageState extends State<_FdrVerificationDetailPage> 
   @override
   Widget build(BuildContext context) {
     final record = DemoFdrPortalStore.instance.currentSubmission;
-    return Scaffold(
-      backgroundColor: _paper,
-      appBar: AppBar(
-        title: const Text('FDR Verification'),
-        backgroundColor: _paper,
-        surfaceTintColor: _paper,
-      ),
+    return OfficerPortalShell(
+      title: 'FDR Verification',
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
@@ -1822,7 +2371,9 @@ class _FdrVerificationDetailPageState extends State<_FdrVerificationDetailPage> 
 }
 
 class _VerificationResultsPage extends StatefulWidget {
-  const _VerificationResultsPage();
+  const _VerificationResultsPage({this.correctionSaved = false});
+
+  final bool correctionSaved;
 
   @override
   State<_VerificationResultsPage> createState() => _VerificationResultsPageState();
@@ -1831,23 +2382,29 @@ class _VerificationResultsPage extends StatefulWidget {
 class _VerificationResultsPageState extends State<_VerificationResultsPage> {
   @override
   Widget build(BuildContext context) {
-    final summary = DemoFdrPortalStore.instance.lastVerification;
-    final record = DemoFdrPortalStore.instance.currentSubmission;
-    final isBlocked = summary.blocking > 0;
+    final store = DemoFdrPortalStore.instance;
+    final summary = store.verificationResults;
+    final record = store.currentSubmission;
+    final releaseCase = store.releaseCase!;
+    final isBlocked = !store.verificationCurrent || summary.blocking > 0;
 
-    return Scaffold(
-      backgroundColor: _paper,
-      appBar: AppBar(
-        title: const Text('Verification Results'),
-        backgroundColor: _paper,
-        surfaceTintColor: _paper,
-      ),
+    return OfficerPortalShell(
+      title: 'Verification Results',
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
           children: [
             const _DemoNotice(),
             const SizedBox(height: 12),
+            if (widget.correctionSaved) ...[
+              const _InlineNotice(
+                message: 'Corrected FDR details were saved. Verification has not been rerun; run it below to refresh discrepancies.',
+                color: Color(0xFFFFF7ED),
+                textColor: Color(0xFF9A3412),
+                icon: Icons.save_outlined,
+              ),
+              const SizedBox(height: 12),
+            ],
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -1873,17 +2430,19 @@ class _VerificationResultsPageState extends State<_VerificationResultsPage> {
                     ],
                   ),
                   const SizedBox(height: 12),
+                  _SummaryMetric(label: 'Case ID', value: releaseCase.caseId),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
-                      Expanded(child: _SummaryMetric(label: 'Total checks', value: summary.totalChecks.toString())),
-                      Expanded(child: _SummaryMetric(label: 'Blocking', value: summary.blocking.toString())),
+                      Expanded(child: _SummaryMetric(label: 'Total checks', value: store.verificationCurrent ? summary.totalChecks.toString() : '—')),
+                      Expanded(child: _SummaryMetric(label: 'Blocking', value: store.verificationCurrent ? summary.blocking.toString() : '—')),
                     ],
                   ),
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      Expanded(child: _SummaryMetric(label: 'Warnings', value: summary.warnings.toString())),
-                      Expanded(child: _SummaryMetric(label: 'Status', value: isBlocked ? 'Blocked' : 'Passed')),
+                      Expanded(child: _SummaryMetric(label: 'Warnings', value: store.verificationCurrent ? summary.warnings.toString() : '—')),
+                      Expanded(child: _SummaryMetric(label: 'Status', value: !store.verificationCurrent ? 'Not run' : isBlocked ? 'Blocked' : 'Passed')),
                     ],
                   ),
                 ],
@@ -1918,9 +2477,9 @@ class _VerificationResultsPageState extends State<_VerificationResultsPage> {
                           ('Lien information', record.lienInformation),
                         ]),
                         _ComparisonColumn(title: 'Receipt Values', entries: [
-                          ('FDR number', 'FDR-EX-884201'),
-                          ('Deposit amount', '₹4,50,000'),
-                          ('Lien information', 'Not provided'),
+                          ('FDR number', record.fdrNumber),
+                          ('Deposit amount', '₹${_formatCurrency(record.receiptAmount)}'),
+                          ('Lien information', record.lienInformation),
                         ]),
                         _ComparisonColumn(title: 'Declared Values', entries: [
                           ('Institution', 'Example Institute of Technology'),
@@ -2021,19 +2580,18 @@ class _VerificationResultsPageState extends State<_VerificationResultsPage> {
               SizedBox(
                 height: 44,
                 child: OutlinedButton.icon(
-                  onPressed: () async {
-                    final summary = FdrVerificationService.runVerification(DemoFdrPortalStore.instance.currentSubmission);
-                    DemoFdrPortalStore.instance.setLastVerification(summary);
-                    DemoFdrPortalStore.instance.appendAuditEntry(
+                  onPressed: () {
+                    final summary = store.runCurrentVerification();
+                    store.appendAuditEntry(
                       action: 'Verification rerun',
-                      associatedId: DemoFdrPortalStore.instance.currentSubmission.submissionId,
+                      associatedId: store.currentSubmission.submissionId,
                       actorRole: 'Demo Officer',
                       payload: summary.statusText,
                     );
                     setState(() {});
                   },
                   icon: const Icon(Icons.refresh_rounded),
-                  label: const Text('Re-run Verification'),
+                  label: Text(store.verificationCurrent ? 'Re-run Verification' : 'Run Verification'),
                   style: OutlinedButton.styleFrom(foregroundColor: _ink, side: const BorderSide(color: _line), minimumSize: const Size.fromHeight(44)),
                 ),
               ),
@@ -2074,6 +2632,69 @@ class _CorrectDetailsPageState extends State<_CorrectDetailsPage> {
   late final TextEditingController _tenureController;
   late final TextEditingController _lienController;
 
+  DateTime? _parseDate(String? value) {
+    final input = value?.trim() ?? '';
+    final isoMatch = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(input);
+    if (isoMatch != null) {
+      final year = int.parse(isoMatch.group(1)!);
+      final month = int.parse(isoMatch.group(2)!);
+      final day = int.parse(isoMatch.group(3)!);
+      final parsed = DateTime(year, month, day);
+      if (parsed.year == year && parsed.month == month && parsed.day == day) return parsed;
+      return null;
+    }
+
+    final match = RegExp(r'^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$').firstMatch(input);
+    if (match == null) return null;
+    const months = {
+      'january': 1,
+      'february': 2,
+      'march': 3,
+      'april': 4,
+      'may': 5,
+      'june': 6,
+      'july': 7,
+      'august': 8,
+      'september': 9,
+      'october': 10,
+      'november': 11,
+      'december': 12,
+    };
+    final day = int.parse(match.group(1)!);
+    final month = months[match.group(2)!.toLowerCase()];
+    final year = int.parse(match.group(3)!);
+    if (month == null) return null;
+    final parsed = DateTime(year, month, day);
+    if (parsed.year != year || parsed.month != month || parsed.day != day) return null;
+    return parsed;
+  }
+
+  String? _issueDateError(String? value) =>
+      _parseDate(value) == null ? 'Enter a valid issue date (for example, 01 October 2025)' : null;
+
+  String? _maturityDateError(String? value) {
+    final maturity = _parseDate(value);
+    if (maturity == null) return 'Enter a valid maturity date (for example, 01 October 2028)';
+    final issue = _parseDate(_issueDateController.text);
+    if (issue == null) return 'Enter a valid issue date first';
+    if (!maturity.isAfter(issue)) return 'Maturity date must be after issue date';
+    return null;
+  }
+
+  String? _tenureError(String? value) {
+    final tenure = int.tryParse(value?.trim() ?? '');
+    if (tenure == null || tenure <= 0) return 'Enter a valid tenure in months';
+    final issue = _parseDate(_issueDateController.text);
+    final maturity = _parseDate(_maturityDateController.text);
+    if (issue == null || maturity == null || !maturity.isAfter(issue)) {
+      return 'Enter a valid issue and maturity date first';
+    }
+    var months = (maturity.year - issue.year) * 12 + maturity.month - issue.month;
+    if (maturity.day < issue.day) months--;
+    if (tenure != months) return 'Tenure does not match the issue and maturity dates ($months months)';
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2103,7 +2724,6 @@ class _CorrectDetailsPageState extends State<_CorrectDetailsPage> {
     final correctedRecord = DemoFdrPortalStore.instance.currentSubmission.copyWith(
       fdrNumber: _fdrNumberController.text.trim(),
       declaredDepositAmount: int.parse(_amountController.text.trim()),
-      receiptAmount: int.parse(_amountController.text.trim()),
       issueDate: _issueDateController.text.trim(),
       maturityDate: _maturityDateController.text.trim(),
       declaredTenureMonths: int.parse(_tenureController.text.trim()),
@@ -2116,33 +2736,19 @@ class _CorrectDetailsPageState extends State<_CorrectDetailsPage> {
       action: 'FDR details corrected',
       associatedId: correctedRecord.submissionId,
       actorRole: 'Demo Officer',
-      payload: 'FDR corrected to ${correctedRecord.fdrNumber} / ₹${_formatCurrency(correctedRecord.declaredDepositAmount)}',
-    );
-
-    final summary = FdrVerificationService.runVerification(correctedRecord);
-    DemoFdrPortalStore.instance.setLastVerification(summary);
-    DemoFdrPortalStore.instance.appendAuditEntry(
-      action: 'Verification rerun',
-      associatedId: correctedRecord.submissionId,
-      actorRole: 'Demo Officer',
-      payload: summary.statusText,
+      payload: 'Saved FDR ${correctedRecord.fdrNumber}; declared amount ₹${_formatCurrency(correctedRecord.declaredDepositAmount)}; receipt amount remains ₹${_formatCurrency(correctedRecord.receiptAmount)}',
     );
 
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(builder: (_) => const _VerificationResultsPage()),
+      MaterialPageRoute<void>(builder: (_) => const _VerificationResultsPage(correctionSaved: true)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _paper,
-      appBar: AppBar(
-        title: const Text('Correct FDR Details'),
-        backgroundColor: _paper,
-        surfaceTintColor: _paper,
-      ),
+    return OfficerPortalShell(
+      title: 'Correct FDR Details',
       body: SafeArea(
         child: Form(
           key: _formKey,
@@ -2158,35 +2764,49 @@ class _CorrectDetailsPageState extends State<_CorrectDetailsPage> {
               ),
               const SizedBox(height: 10),
               _FieldCard(
-                label: 'Deposit amount',
+                label: 'Declared deposit amount',
                 controller: _amountController,
                 keyboardType: TextInputType.number,
-                validator: (value) => (value == null || value.trim().isEmpty) ? 'Deposit amount is required' : null,
+                validator: (value) {
+                  final amount = value == null ? null : int.tryParse(value.trim());
+                  if (amount == null) return 'Enter a valid declared amount';
+                  if (amount <= 0) return 'Declared amount must be greater than zero';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 10),
+              _MiniInfoRow(
+                label: 'Receipt amount (read only)',
+                value: '₹${_formatCurrency(DemoFdrPortalStore.instance.currentSubmission.receiptAmount)}',
               ),
               const SizedBox(height: 10),
               _FieldCard(
                 label: 'Issue date',
                 controller: _issueDateController,
-                validator: (value) => (value == null || value.trim().isEmpty) ? 'Issue date is required' : null,
+                validator: _issueDateError,
               ),
               const SizedBox(height: 10),
               _FieldCard(
                 label: 'Maturity date',
                 controller: _maturityDateController,
-                validator: (value) => (value == null || value.trim().isEmpty) ? 'Maturity date is required' : null,
+                validator: _maturityDateError,
               ),
               const SizedBox(height: 10),
               _FieldCard(
                 label: 'Tenure',
                 controller: _tenureController,
                 keyboardType: TextInputType.number,
-                validator: (value) => (value == null || value.trim().isEmpty) ? 'Tenure is required' : null,
+                validator: _tenureError,
               ),
               const SizedBox(height: 10),
               _FieldCard(
                 label: 'Lien information',
                 controller: _lienController,
-                validator: (value) => value == null || value.trim().isEmpty ? 'Lien information is required' : null,
+                validator: (value) => (value?.length ?? 0) > 500 ? 'Lien information must be 500 characters or fewer' : null,
+              ),
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: Text('Leave blank if unknown; missing lien information remains a verification warning.', style: TextStyle(color: _muted, fontSize: 10)),
               ),
               const SizedBox(height: 18),
               FilledButton.icon(
@@ -2240,7 +2860,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
   ReleaseEligibility _eligibility([ReleaseCase? record]) => ReleaseEligibilityService.evaluate(
     record: record ?? _case,
     verification: (record ?? _case).caseType == 'Normal Release'
-        ? _store.lastVerification
+    ? _store.verificationForEligibility
         : _caseVerificationPassed,
     originalFdrExists: _store.demoFdrRecords.containsKey((record ?? _case).originalFdrReference),
   );
@@ -2391,17 +3011,21 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
     final isNormalRelease = record.caseType == 'Normal Release';
     final isProgressiveClosure = record.caseType == 'Progressive Closure';
     final isMerger = record.caseType == 'Merger';
-    final verificationBlocked = (isNormalRelease ? _store.lastVerification : _caseVerificationPassed).blocking > 0;
+    final verificationBlocked = isNormalRelease
+      ? !_store.verificationCurrent || _store.lastVerification.blocking > 0
+      : _caseVerificationPassed.blocking > 0;
     final nocIssued = record.status == 'NOC Issued — Demo';
     final caseApproved = record.status.endsWith('Approved — Demo');
+    final progressiveAmountValidation = ReleaseEligibilityService.validateRequestedAmount(
+      record.requestedReleaseAmount.toString(),
+      originalFdrAmount: record.originalFdrAmount,
+      availableBalance: record.availableBalance,
+    );
+    final progressiveAmountIsValid = progressiveAmountValidation == null;
+    final displayedRetainedBalance = progressiveAmountIsValid ? record.retainedBalance : 0;
 
-    return Scaffold(
-      backgroundColor: _paper,
-      appBar: AppBar(
-        title: const Text('Release / Refund Case'),
-        backgroundColor: _paper,
-        surfaceTintColor: _paper,
-      ),
+    return OfficerPortalShell(
+      title: 'Release / Refund Case',
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -2480,14 +3104,29 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                 if (verificationBlocked) ...[
                   const SizedBox(height: 10),
                   _InlineNotice(
-                    message: 'Case blocked — resolve all blocking FDR discrepancies before proceeding. ${_store.lastVerification.blocking} blocking item(s) remain.',
+                    message: _store.verificationCurrent
+                        ? 'Case blocked — resolve all blocking FDR discrepancies before proceeding. ${_store.lastVerification.blocking} blocking item(s) remain.'
+                        : 'Verification required — run verification for the saved FDR details before proceeding.',
                     color: const Color(0xFFFEF2F2),
                     textColor: const Color(0xFF991B1B),
                     icon: Icons.block_rounded,
-                    action: TextButton.icon(
-                      onPressed: _openVerificationResults,
-                      icon: const Icon(Icons.fact_check_outlined, size: 17),
-                      label: const Text('View Verification Results'),
+                    action: Wrap(
+                      spacing: 4,
+                      runSpacing: 2,
+                      children: [
+                        TextButton.icon(
+                          onPressed: _openVerificationResults,
+                          icon: const Icon(Icons.fact_check_outlined, size: 17),
+                          label: const Text('View Verification Results'),
+                        ),
+                        TextButton.icon(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(builder: (_) => const _CorrectDetailsPage()),
+                          ),
+                          icon: const Icon(Icons.edit_note_rounded, size: 17),
+                          label: const Text('Correct FDR Details'),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -2508,29 +3147,34 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                           autovalidateMode: AutovalidateMode.always,
                           decoration: const InputDecoration(labelText: 'Requested release amount (₹)', border: OutlineInputBorder()),
                           validator: (value) {
-                            final amount = int.tryParse(value?.trim() ?? '');
-                            if (amount == null || amount <= 0) return 'Enter an amount greater than zero.';
-                            if (amount > record.originalFdrAmount) return 'Amount cannot exceed the original FDR.';
-                            if (amount > record.availableBalance) return 'Amount cannot exceed the available balance.';
+                            final amount = value == null ? null : int.tryParse(value.trim());
+                            if (value == null || value.trim().isEmpty) return 'Requested release amount is required.';
+                            if (amount == null) return 'Requested release amount must be numeric.';
+                            if (amount <= 0) return 'Requested release amount must be greater than zero.';
+                            if (amount > record.originalFdrAmount) return 'Requested release amount cannot exceed the original FDR amount.';
+                            if (amount > record.availableBalance) return 'Requested release amount cannot exceed the currently available balance.';
                             return null;
                           },
                           onChanged: (value) {
-                            final oldAmount = _case.requestedReleaseAmount;
-                            final amount = int.tryParse(value.trim()) ?? 0;
-                            _store.updateProgressiveClosure(requestedAmount: amount);
-                            if (amount != oldAmount) {
-                              _store.appendAuditEntry(
-                                action: 'Partial release amount changed',
-                                associatedId: record.caseId,
-                                actorRole: 'Demo Officer',
-                                payload: 'Requested amount ₹$amount',
-                              );
+                            final trimmed = value.trim();
+                            final parsed = int.tryParse(trimmed);
+                            if (trimmed.isEmpty || parsed == null) {
+                              return;
                             }
-                            if (amount != oldAmount) setState(() {});
+                            final oldAmount = _case.requestedReleaseAmount;
+                            if (parsed == oldAmount) return;
+                            _store.updateProgressiveClosure(requestedAmount: parsed);
+                            _store.appendAuditEntry(
+                              action: 'Partial release amount changed',
+                              associatedId: record.caseId,
+                              actorRole: 'Demo Officer',
+                              payload: 'Requested amount ₹$parsed',
+                            );
+                            setState(() {});
                           },
                         ),
                         const SizedBox(height: 10),
-                        Text('Calculated retained balance: ₹${_formatCurrency(record.retainedBalance)}', style: TextStyle(color: record.retainedBalance < 0 ? const Color(0xFFB91C1C) : _ink, fontSize: 13, fontWeight: FontWeight.w700)),
+                        Text('Calculated retained balance: ₹${_formatCurrency(displayedRetainedBalance)}', style: TextStyle(color: displayedRetainedBalance < 0 ? const Color(0xFFB91C1C) : _ink, fontSize: 13, fontWeight: FontWeight.w700)),
                         const SizedBox(height: 8),
                         TextFormField(
                           key: ValueKey('pcl-reason-${record.caseId}'),
@@ -2826,6 +3470,9 @@ class _WorkflowProgress extends StatelessWidget {
   Widget build(BuildContext context) {
     var currentIndex = stages.indexOf(nextStage);
     if (currentIndex < 0) currentIndex = stages.length - 1;
+    if (completed[currentIndex]) {
+      currentIndex = completed.indexWhere((isCompleted) => !isCompleted);
+    }
     return Column(children: [
       for (var index = 0; index < stages.length; index++) ...[
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -3002,13 +3649,8 @@ class _AuditTrailPageState extends State<_AuditTrailPage> {
     final entries = DemoFdrPortalStore.instance.auditEntries;
     final integrity = _verifyChain();
 
-    return Scaffold(
-      backgroundColor: _paper,
-      appBar: AppBar(
-        title: const Text('Audit Trail'),
-        backgroundColor: _paper,
-        surfaceTintColor: _paper,
-      ),
+    return OfficerPortalShell(
+      title: 'Audit Trail',
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
