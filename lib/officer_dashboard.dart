@@ -4,6 +4,8 @@ import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'notification_center.dart';
 import 'portal_foundations.dart';
@@ -270,6 +272,10 @@ Map<SubmissionStatus, int> statusPercentages(Iterable<Submission> submissions) {
   }
   return percentages;
 }
+
+Map<SubmissionStatus, int> statusPercentagesFor(
+  Iterable<Submission> submissions,
+) => statusPercentages(submissions);
 
 Submission? latestActivityForInstitution(
   Iterable<Submission> submissions,
@@ -749,7 +755,27 @@ class OfficerPortalShell extends StatelessWidget {
           ),
         ),
       ),
-      body: body,
+      body: AnimatedBuilder(
+        animation: DemoFdrPortalStore.instance,
+        builder: (context, _) => Column(
+          children: [
+            if (DemoFdrPortalStore.instance.auditIntegrityBroken)
+              MaterialBanner(
+                content: const Text('Audit integrity issue detected. Open Audit Trail for details.'),
+                leading: const Icon(Icons.warning_amber_rounded),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute<void>(builder: (_) => const _AuditTrailPage()),
+                    ),
+                    child: const Text('Review'),
+                  ),
+                ],
+              ),
+            Expanded(child: body),
+          ],
+        ),
+      ),
       bottomNavigationBar:
           bottomNavigationBar ??
           NavigationBar(
@@ -935,6 +961,12 @@ class _DashboardHome extends StatelessWidget {
                     title: 'Action Queue',
                     trailing:
                         '${buildOfficerActionQueue(DemoFdrPortalStore.instance).length} items',
+                    actionLabel: 'View all',
+                    onAction: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const _FullActionQueuePage(),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 8),
                   _OfficerActionQueue(
@@ -960,6 +992,13 @@ class _DashboardHome extends StatelessWidget {
                     },
                   ),
                   const SizedBox(height: 8),
+                  Text(
+                    DemoFdrPortalStore.instance.lastReminderScanAt == null
+                        ? 'Reminder scan not run yet'
+                        : '${DemoFdrPortalStore.instance.lastReminderCreated} new reminders sent · ${DemoFdrPortalStore.instance.lastReminderAlreadySent} already sent',
+                    style: const TextStyle(color: _muted, fontSize: 11),
+                  ),
+                  const SizedBox(height: 4),
                   _DeadlineList(
                     items: DemoFdrPortalStore.instance.deadlineItems,
                   ),
@@ -1097,6 +1136,119 @@ class _OfficerActionQueue extends StatelessWidget {
   }
 }
 
+class _FullActionQueuePage extends StatefulWidget {
+  const _FullActionQueuePage();
+
+  @override
+  State<_FullActionQueuePage> createState() => _FullActionQueuePageState();
+}
+
+class _FullActionQueuePageState extends State<_FullActionQueuePage> {
+  QueueFilter _filter = QueueFilter.all;
+  bool _groupByInstitution = false;
+
+  @override
+  Widget build(BuildContext context) => OfficerPortalShell(
+    title: 'Officer Action Queue',
+    body: AnimatedBuilder(
+      animation: DemoFdrPortalStore.instance,
+      builder: (context, _) {
+        final all = StoreReportsRepository(DemoFdrPortalStore.instance).actionQueue;
+        final visible = all.where((item) {
+          if (_filter == QueueFilter.all) return true;
+          return item.category.split(', ').contains(_filter.label);
+        }).toList();
+        final groups = <String, List<ActionQueueItem>>{};
+        for (final item in visible) {
+          groups.putIfAbsent(item.institution, () => []).add(item);
+        }
+        return Column(
+          children: [
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
+              child: Row(
+                children: [
+                  for (final filter in QueueFilter.values)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 7),
+                      child: ChoiceChip(
+                        label: Text('${filter.label} ${all.where((item) => filter == QueueFilter.all || item.category.split(', ').contains(filter.label)).length}'),
+                        selected: _filter == filter,
+                        onSelected: (_) => setState(() => _filter = filter),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            SwitchListTile(
+              title: const Text('Group by institution'),
+              value: _groupByInstitution,
+              onChanged: (value) => setState(() => _groupByInstitution = value),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
+                children: _groupByInstitution
+                    ? [
+                        for (final entry in groups.entries) ...[
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Text(entry.key, style: const TextStyle(fontWeight: FontWeight.w800)),
+                          ),
+                          for (final item in entry.value) _queueTile(context, item),
+                        ],
+                      ]
+                    : [for (final item in visible) _queueTile(context, item)],
+              ),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+
+  Widget _queueTile(BuildContext context, ActionQueueItem item) => Card(
+    child: ListTile(
+      leading: Icon(item.priority == 'High' ? Icons.priority_high_rounded : Icons.schedule_rounded),
+      title: Text(item.reference),
+      subtitle: Text('${item.institution}\n${item.reason}'),
+      isThreeLine: true,
+      trailing: TextButton(
+        onPressed: () => _openQueueItem(context, item),
+        child: const Text('Open'),
+      ),
+    ),
+  );
+
+  void _openQueueItem(BuildContext context, ActionQueueItem item) {
+    final store = DemoFdrPortalStore.instance;
+    final submission = store.submissionById(item.relatedSubmissionId);
+    if (submission == null) return;
+    final target = queueTargetFor(item);
+    store.selectSubmission(submission.submissionId);
+    if (target == QueueTarget.releaseClearances && submission.caseId != null) {
+      store.selectReleaseCase(item.relatedCaseId ?? submission.caseId!);
+    } else if (target == QueueTarget.releaseClearances && item.relatedCaseId != null) {
+      store.selectReleaseCase(item.relatedCaseId!);
+    }
+    if (target == QueueTarget.verificationResults) {
+      store.runCurrentVerification();
+      if (store.releaseCase == null) store.createReleaseCase();
+    }
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => switch (target) {
+          QueueTarget.releaseClearances => const _ReleaseCasePage(),
+          QueueTarget.correction => const _CorrectDetailsPage(),
+          QueueTarget.verificationResults => const _VerificationResultsPage(),
+          QueueTarget.deadlineDetails => const _FdrVerificationDetailPage(),
+        },
+      ),
+    );
+  }
+}
+
 class _DeadlineList extends StatelessWidget {
   const _DeadlineList({required this.items});
 
@@ -1138,9 +1290,77 @@ class _DeadlineList extends StatelessWidget {
                   : '${item.daysRemaining} days remaining'}',
             ),
             isThreeLine: true,
+            trailing: item.status == MaturityStatus.active || item.isRenewed
+                ? null
+                : TextButton(
+                    onPressed: () => _showRenewalDialog(context, item),
+                    child: const Text('Renew FDR'),
+                  ),
           ),
       ],
     );
+  }
+
+  Future<void> _showRenewalDialog(
+    BuildContext context,
+    FdrDeadlineInfo deadline,
+  ) async {
+    final store = DemoFdrPortalStore.instance;
+    final record = store.fdrRecordForSubmission(deadline.submission.submissionId);
+    if (record == null) return;
+    final number = TextEditingController();
+    final bank = TextEditingController(text: record.bank);
+    final amount = TextEditingController(text: '${record.declaredDepositAmount}');
+    final issue = TextEditingController(
+      text: record.maturityDate,
+    );
+    final tenure = TextEditingController(text: '${record.declaredTenureMonths}');
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Renew FDR'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: number, decoration: const InputDecoration(labelText: 'New FDR number')),
+              TextField(controller: bank, decoration: const InputDecoration(labelText: 'Bank')),
+              TextField(controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Amount')),
+              TextField(controller: issue, decoration: const InputDecoration(labelText: 'Issue date')),
+              TextField(controller: tenure, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Tenure months')),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              try {
+                store.createRenewal(
+                  parentFdrReference: record.fdrNumber,
+                  newFdrNumber: number.text.trim(),
+                  bank: bank.text.trim(),
+                  amount: int.parse(amount.text.trim()),
+                  issueDate: issue.text.trim(),
+                  tenureMonths: int.parse(tenure.text.trim()),
+                );
+                Navigator.pop(dialogContext);
+              } on Object catch (error) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(error.toString())),
+                );
+              }
+            },
+            child: const Text('Create renewal'),
+          ),
+        ],
+      ),
+    );
+    number.dispose();
+    bank.dispose();
+    amount.dispose();
+    issue.dispose();
+    tenure.dispose();
   }
 }
 
@@ -1333,7 +1553,7 @@ class _InstitutionCard extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                'Rule-based risk: ${risk.category}',
+                'Risk: ${risk.category} · Score ${risk.score}',
                 style: TextStyle(
                   color: risk.category == 'High'
                       ? const Color(0xFFB91C1C)
@@ -1343,6 +1563,20 @@ class _InstitutionCard extends StatelessWidget {
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
+              ),
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: const Text('Why this risk?', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                children: [
+                  for (final reason in risk.reasons)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(reason, style: const TextStyle(color: _muted, fontSize: 11)),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 8),
               Text(
@@ -1445,6 +1679,25 @@ class _InstitutionDetailPage extends StatelessWidget {
               'Submissions ${records.length} · Pending ${breakdown[SubmissionStatus.pendingReview]} · Approved ${breakdown[SubmissionStatus.approved]}',
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
+            Builder(
+              builder: (context) {
+                final risk = assessInstitutionRisk(records);
+                return ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: Text('Risk: ${risk.category} · Score ${risk.score}'),
+                  children: [
+                    for (final reason in risk.reasons)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 5),
+                          child: Text(reason, style: const TextStyle(color: _muted, fontSize: 11)),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
             const SizedBox(height: 14),
             for (final submission in records) ...[
               _SubmissionRecordCard(
@@ -1467,14 +1720,12 @@ class _ReportsView extends StatelessWidget {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: DemoFdrPortalStore.instance,
     builder: (context, _) {
-      final records = const MockOfficerDashboardRepository().submissions;
-      final deposits = totalDepositByStatus(records);
-      final banks = submissionsByBank(records);
-      final total = records.length;
-      final resolved = records
-          .where((record) => record.status != SubmissionStatus.pendingReview)
-          .length;
-      final percentages = statusPercentages(records);
+      final reports = StoreReportsRepository(DemoFdrPortalStore.instance);
+      final records = reports.submissions;
+        final deposits = reports.depositByStatus;
+        final total = reports.totalSubmissions;
+        final resolved = reports.resolvedCount;
+        final percentages = reports.statusPercentages;
       return SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
         child: Column(
@@ -1482,7 +1733,10 @@ class _ReportsView extends StatelessWidget {
           children: [
             const _DemoNotice(),
             const SizedBox(height: 14),
-            const _ReportSection(title: 'Summary', child: _ReportSummary()),
+            _ReportSection(
+              title: 'Summary',
+              child: _ReportSummary(repository: reports),
+            ),
             const SizedBox(height: 10),
             _ReportSection(
               title: 'Status Distribution',
@@ -1491,7 +1745,7 @@ class _ReportsView extends StatelessWidget {
                   for (final status in SubmissionStatus.values)
                     _DistributionRow(
                       status: status,
-                      count: countByStatus(records, status),
+                      count: reports.statusCounts[status]!,
                       percentage: percentages[status]!,
                     ),
                 ],
@@ -1515,11 +1769,24 @@ class _ReportsView extends StatelessWidget {
               title: 'Deposit by Bank',
               child: Column(
                 children: [
-                  for (final entry in banks.entries)
+                  for (final entry in reports.bankCounts.entries)
                     _ReportLine(
                       label: entry.key,
                       value:
-                          '${entry.value.length} submissions · ₹${_formatCurrency(totalDepositByBank(records)[entry.key]!)}',
+                          '${entry.value} submissions · ₹${_formatCurrency(reports.depositByBank[entry.key]!)}',
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            _ReportSection(
+              title: 'Institution Risk',
+              child: Column(
+                children: [
+                  for (final entry in reports.institutionRisk.entries)
+                    _ReportLine(
+                      label: entry.key,
+                      value: '${entry.value.category} · ${entry.value.score} points',
                     ),
                 ],
               ),
@@ -1527,20 +1794,23 @@ class _ReportsView extends StatelessWidget {
             const SizedBox(height: 10),
             _ReportSection(title: 'Recent Activity', child: _RecentActivity()),
             const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: () async {
-                final csv = buildSubmissionsCsv(records);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'CSV report copied (${records.length} records)',
-                    ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final report in <({String name, String csv})>[
+                  (name: 'submissions.csv', csv: buildSubmissionsCsv(records)),
+                  (name: 'institutions.csv', csv: buildInstitutionsCsv(reports.institutionRisk)),
+                  (name: 'deadlines.csv', csv: buildDeadlinesCsv(reports.deadlines)),
+                  (name: 'audit-trail.csv', csv: buildAuditCsv(DemoFdrPortalStore.instance.auditEntries)),
+                  (name: 'discrepancies.csv', csv: buildDiscrepanciesCsv(records)),
+                ])
+                  OutlinedButton.icon(
+                    onPressed: () => exportCsvReport(context, report.name, report.csv),
+                    icon: const Icon(Icons.download_outlined),
+                    label: Text(report.name == 'submissions.csv' ? 'Export Report' : report.name),
                   ),
-                );
-                await Clipboard.setData(ClipboardData(text: csv));
-              },
-              icon: const Icon(Icons.download_outlined),
-              label: const Text('Export Report'),
+              ],
             ),
             const SizedBox(height: 4),
             Text(
@@ -1555,23 +1825,23 @@ class _ReportsView extends StatelessWidget {
 }
 
 class _ReportSummary extends StatelessWidget {
-  const _ReportSummary();
+  const _ReportSummary({required this.repository});
+  final ReportsRepository repository;
   @override
   Widget build(BuildContext context) {
-    final records = const MockOfficerDashboardRepository().submissions;
     return Wrap(
       spacing: 18,
       runSpacing: 10,
       children: [
-        _SummaryValue('Total Submissions', '${records.length}'),
-        _SummaryValue('Total Institutions', '${institutions(records).length}'),
+        _SummaryValue('Total Submissions', '${repository.totalSubmissions}'),
+        _SummaryValue('Total Institutions', '${repository.totalInstitutions}'),
         _SummaryValue(
           'Total Deposit Value',
-          '₹${_formatCurrency(records.fold(0, (sum, item) => sum + item.depositAmount))}',
+          '₹${_formatCurrency(repository.totalDeposit)}',
         ),
         _SummaryValue(
           'Pending vs Resolved',
-          '${countByStatus(records, SubmissionStatus.pendingReview)} vs ${records.length - countByStatus(records, SubmissionStatus.pendingReview)}',
+          '${repository.statusCounts[SubmissionStatus.pendingReview]} vs ${repository.resolvedCount}',
         ),
       ],
     );
@@ -2276,6 +2546,23 @@ class _OfficerProfilePageState extends State<OfficerProfilePage> {
           _preferenceTile('In-app notifications', 'inApp'),
           _preferenceTile('Approval and submission notifications', 'workflow'),
           _preferenceTile('Reminder notifications', 'reminders'),
+          if (portalAuthService.currentClaims != null)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Role'),
+              subtitle: Text(portalAuthService.currentClaims!.role.name),
+              trailing: PopupMenuButton<AuthRole>(
+                tooltip: 'Switch role',
+                onSelected: (role) async {
+                  await portalAuthService.switchRole(role);
+                  if (mounted) setState(() {});
+                },
+                itemBuilder: (context) => [
+                  for (final role in AuthRole.values)
+                    PopupMenuItem(value: role, child: Text(role.name)),
+                ],
+              ),
+            ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: () => Navigator.of(context).push(
@@ -2287,9 +2574,23 @@ class _OfficerProfilePageState extends State<OfficerProfilePage> {
             label: const Text('Verification Rules'),
           ),
           OutlinedButton.icon(
-            onPressed: () {
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const DemoScriptPage(),
+              ),
+            ),
+            icon: const Icon(Icons.route_outlined),
+            label: const Text('Demo Script'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
               DemoFdrPortalStore.instance.resetDemoData();
-              ScaffoldMessenger.of(context).showSnackBar(
+              DemoFdrPortalStore.instance.seedDemoCases();
+              await portalAuthService.authenticate(widget.userId, 'demo-password');
+              if (!mounted) return;
+              setState(() {});
+              messenger.showSnackBar(
                 const SnackBar(content: Text('Demo data reset.')),
               );
             },
@@ -2387,6 +2688,186 @@ class _VerificationRulesPage extends StatelessWidget {
       ),
     ),
   );
+}
+
+class DemoScriptPage extends StatelessWidget {
+  const DemoScriptPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => OfficerPortalShell(
+    title: 'Demo Script',
+    body: ListView(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
+      children: [
+        const _DemoNotice(),
+        const SizedBox(height: 12),
+        const Text(
+          'Three-minute workflow',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 8),
+        for (final step in const [
+          ('Queue', 'Open the full officer action queue.', Icons.list_alt_rounded),
+          ('6-day maturity', 'Open the critical FDR deadline.', Icons.event_outlined),
+          ('Reminder scan', 'Run the reminder scan and review counts.', Icons.notifications_active_outlined),
+          ('Renewal lineage', 'Open the parent and child FDR chain.', Icons.account_tree_outlined),
+          ('Amount mismatch', 'Open the blocking discrepancy.', Icons.warning_amber_rounded),
+          ('Duplicate FDR', 'Open the duplicate reference check.', Icons.content_copy_rounded),
+          ('Correct and re-verify', 'Open the correction workflow.', Icons.edit_note_rounded),
+          ('Release checklist', 'Open the staged release case.', Icons.fact_check_outlined),
+          ('Parallel clearances', 'Review Grievance and Vigilance states.', Icons.account_tree_outlined),
+          ('Audit verify', 'Verify the persisted audit chain.', Icons.verified_outlined),
+          ('Tamper detect', 'Test detection and restore the stored chain.', Icons.security_outlined),
+          ('Updated queue counts', 'Return to the queue after completing an action.', Icons.refresh_rounded),
+        ])
+          Card(
+            child: ListTile(
+              leading: Icon(step.$3, color: _orange),
+              title: Text(step.$1),
+              subtitle: Text(step.$2),
+              trailing: IconButton(
+                tooltip: 'Open step',
+                icon: const Icon(Icons.arrow_forward_rounded),
+                onPressed: () => _openStep(context, step.$1),
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+
+  void _openStep(BuildContext context, String step) {
+    final store = DemoFdrPortalStore.instance;
+    if (step == 'Queue' || step == 'Updated queue counts') {
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _FullActionQueuePage()));
+      return;
+    }
+    if (step == 'Audit verify' || step == 'Tamper detect') {
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _AuditTrailPage()));
+      return;
+    }
+    if (step == 'Release checklist' || step == 'Parallel clearances') {
+      store.createReleaseCase();
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _ReleaseCasePage()));
+      return;
+    }
+    if (step == '6-day maturity') {
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _DeadlineFocusPage()));
+      return;
+    }
+    if (step == 'Reminder scan') {
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _ReminderScanPage()));
+      return;
+    }
+    if (step == 'Renewal lineage') {
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _RenewalLineagePage()));
+      return;
+    }
+    if (step == 'Correct and re-verify') {
+      store.selectSubmission('FDR-2026-00128');
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _CorrectDetailsPage()));
+      return;
+    }
+    if (step == 'Amount mismatch' || step == 'Duplicate FDR') {
+      store.selectSubmission(
+        step == 'Duplicate FDR' ? 'FDR-2026-00125' : 'FDR-2026-00124',
+      );
+      store.createReleaseCase();
+      store.runCurrentVerification();
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const _VerificationResultsPage()),
+      );
+      return;
+    }
+    store.selectSubmission('FDR-2026-00124');
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _FdrVerificationDetailPage()));
+  }
+}
+
+class _DeadlineFocusPage extends StatelessWidget {
+  const _DeadlineFocusPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final item = DemoFdrPortalStore.instance.deadlineItems
+        .where((deadline) => deadline.submission.submissionId == 'FDR-2026-00124')
+        .firstOrNull;
+    return OfficerPortalShell(
+      title: '6-day maturity',
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
+        children: [
+          const _DemoNotice(),
+          const SizedBox(height: 10),
+          if (item == null)
+            const _InlineEmptyState(message: 'The six-day maturity record is unavailable.')
+          else
+            _DeadlineList(items: [item]),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReminderScanPage extends StatefulWidget {
+  const _ReminderScanPage();
+
+  @override
+  State<_ReminderScanPage> createState() => _ReminderScanPageState();
+}
+
+class _ReminderScanPageState extends State<_ReminderScanPage> {
+  @override
+  Widget build(BuildContext context) => OfficerPortalShell(
+    title: 'Reminder Scan',
+    body: AnimatedBuilder(
+      animation: DemoFdrPortalStore.instance,
+      builder: (context, _) {
+        final store = DemoFdrPortalStore.instance;
+        return ListView(
+          padding: const EdgeInsets.all(18),
+          children: [
+            const _DemoNotice(),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () {
+                store.runReminderScan();
+                setState(() {});
+              },
+              icon: const Icon(Icons.notifications_active_outlined),
+              label: const Text('Run Reminder Scan'),
+            ),
+            Text('${store.lastReminderCreated} new reminders sent · ${store.lastReminderAlreadySent} already sent'),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+class _RenewalLineagePage extends StatelessWidget {
+  const _RenewalLineagePage();
+
+  @override
+  Widget build(BuildContext context) {
+    final records = DemoFdrPortalStore.instance.renewalLineage('FDR-EIT-771530');
+    return OfficerPortalShell(
+      title: 'Renewal Lineage',
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
+        children: [
+          const _DemoNotice(),
+          const SizedBox(height: 10),
+          for (var index = 0; index < records.length; index++)
+            ListTile(
+              leading: Icon(index == 0 ? Icons.account_balance_outlined : Icons.subdirectory_arrow_right_rounded),
+              title: Text(records[index].fdrNumber),
+              subtitle: Text('${records[index].institution} · ${records[index].submissionStatus}\n${records[index].parentFdrReference == null ? 'Original FDR' : 'Renewed from ${records[index].parentFdrReference}'}'),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _OfficerInfoPanel extends StatelessWidget {
@@ -2916,7 +3397,60 @@ class DemoFdrPortalStore extends ChangeNotifier {
   }
 
   static final DemoFdrPortalStore instance = DemoFdrPortalStore._();
+
+  static FdrRecord _seededFdrRecord({
+    required String submissionId,
+    required String fdrNumber,
+    required String institution,
+    required String institutionId,
+    required String bank,
+    required int amount,
+    required String issueDate,
+    required String maturityDate,
+    String lienInformation = 'No lien',
+    Map<DocumentSource, Map<String, String?>> sourceValues = const {},
+    bool isDeliberateInvalidDate = false,
+  }) => FdrRecord(
+    institution: institution,
+    institutionId: institutionId,
+    submissionId: submissionId,
+    bank: bank,
+    fdrNumber: fdrNumber,
+    declaredDepositAmount: amount,
+    receiptAmount: amount,
+    issueDate: issueDate,
+    maturityDate: maturityDate,
+    declaredTenureMonths: 36,
+    enteredTenureMonths: 36,
+    lienInformation: lienInformation,
+    submissionStatus: 'Pending Review',
+    documents: const [],
+    sourceValues: sourceValues,
+    isDeliberateInvalidDate: isDeliberateInvalidDate,
+  );
+
+  String _dateRelative(int days) {
+    final date = _clock.now().add(Duration(days: days));
+    return _formatSeedDate(date);
+  }
+
+  String _dateMonthsBefore(DateTime date, int months) => _formatSeedDate(
+    DateTime(date.year, date.month - months, date.day),
+  );
+
+  String _formatSeedDate(DateTime date) =>
+      '${date.day.toString().padLeft(2, '0')} ${const ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][date.month - 1]} ${date.year}';
   final Clock _clock;
+  LocalStorage _auditStorage = MemoryLocalStorage();
+  Future<void> _auditWrite = Future<void>.value();
+  AuditChainAnchor? _auditAnchor;
+  AuditIntegrityResult? _auditIntegrity;
+  List<AuditEntry>? _auditBackup;
+  LocalStorage _reminderStorage = MemoryLocalStorage();
+  Future<void> _reminderWrite = Future<void>.value();
+  DateTime? _lastReminderScanAt;
+  int _lastReminderCreated = 0;
+  int _lastReminderAlreadySent = 0;
 
   FdrRecord _currentSubmission = _blockedSubmission;
 
@@ -3042,6 +3576,46 @@ class DemoFdrPortalStore extends ChangeNotifier {
   final Map<String, FdrRecord> _fdrRecordsBySubmissionId = {
     'FDR-2026-00124': _blockedSubmission,
     'FDR-2026-00128': _rejectedSubmission,
+    'FDR-2026-00125': _seededFdrRecord(
+      submissionId: 'FDR-2026-00125',
+      fdrNumber: 'FDR-NC-550318',
+      institution: 'National College of Engineering',
+      institutionId: 'INST-00125',
+      bank: 'National Commerce Bank',
+      amount: 300000,
+      issueDate: '15 October 2026',
+      maturityDate: '15 October 2029',
+    ),
+    'FDR-2026-00126': _seededFdrRecord(
+      submissionId: 'FDR-2026-00126',
+      fdrNumber: 'FDR-MI-719643',
+      institution: 'Metropolitan Institute of Science',
+      institutionId: 'INST-00126',
+      bank: 'Metropolitan Bank',
+      amount: 750000,
+      issueDate: '22 October 2026',
+      maturityDate: '22 November 2026',
+    ),
+    'FDR-2026-00127': _seededFdrRecord(
+      submissionId: 'FDR-2026-00127',
+      fdrNumber: 'FDR-EIT-771530',
+      institution: 'Example Institute of Technology',
+      institutionId: 'INST-DEMO-0042',
+      bank: 'Civic Union Bank',
+      amount: 350000,
+      issueDate: '18 October 2026',
+      maturityDate: '18 October 2028',
+    ),
+    'FDR-2026-00129': _seededFdrRecord(
+      submissionId: 'FDR-2026-00129',
+      fdrNumber: 'FDR-EIT-330817',
+      institution: 'Example Institute of Technology',
+      institutionId: 'INST-DEMO-0042',
+      bank: 'Example National Bank',
+      amount: 425000,
+      issueDate: '03 October 2026',
+      maturityDate: 'invalid-date',
+    ),
   };
   final Map<String, String> _mergerRelationships = <String, String>{};
   String _selectedCaseType = 'Normal Release';
@@ -3053,7 +3627,10 @@ class DemoFdrPortalStore extends ChangeNotifier {
   final Map<String, RuleConfig> _rules = {
     for (final rule in defaultRuleConfigs()) rule.id: rule,
   };
+  final Map<String, Discrepancy> _discrepancies = <String, Discrepancy>{};
   final Map<String, List<int>> _documentBytes = <String, List<int>>{};
+  LocalStorage _documentStorage = MemoryLocalStorage();
+  Future<void> _documentWrite = Future<void>.value();
   DemoVerificationScenario _verificationScenario =
       DemoVerificationScenario.blocked;
   bool _verificationCurrent = true;
@@ -3180,10 +3757,12 @@ class DemoFdrPortalStore extends ChangeNotifier {
           issues: [],
         );
   DemoVerificationScenario get verificationScenario => _verificationScenario;
-  ReleaseCase? get releaseCase =>
+    ReleaseCase? get releaseCase =>
       (_selectedReleaseCaseId == null
-          ? null
-          : _releaseCases[_selectedReleaseCaseId]) ??
+        ? null
+        : _releaseCases.values
+          .where((item) => item.caseId == _selectedReleaseCaseId)
+          .firstOrNull) ??
       _releaseCases[_selectedCaseType];
   String get selectedCaseType => _selectedCaseType;
   FdrRecord get originalFdrRecord => _currentSubmission;
@@ -3192,7 +3771,315 @@ class DemoFdrPortalStore extends ChangeNotifier {
   Map<String, String> get mergerRelationships =>
       Map.unmodifiable(_mergerRelationships);
   List<AuditEntry> get auditEntries => List.unmodifiable(_auditEntries);
+  AuditIntegrityResult? get auditIntegrity => _auditIntegrity;
+  bool get auditIntegrityBroken => _auditIntegrity?.isValid == false;
+
+  Future<void> flushPersistence() async {
+    await _auditWrite;
+    await _reminderWrite;
+    await _documentWrite;
+  }
+
+  Future<void> initializeDocumentPersistence(LocalStorage storage) async {
+    _documentStorage = storage;
+    final raw = await storage.read('aicte.documents');
+    if (raw == null) return;
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic>) return;
+    _documentBytes
+      ..clear()
+      ..addAll({
+        for (final entry in decoded.entries)
+          entry.key: base64Decode(entry.value as String),
+      });
+  }
+
+  Future<void> _persistDocumentBytes() => _documentStorage.write(
+    'aicte.documents',
+    jsonEncode({
+      for (final entry in _documentBytes.entries)
+        entry.key: base64Encode(entry.value),
+    }),
+  );
+
+  void requirePermission(
+    String action, {
+    required Set<AuthRole> allowed,
+    String? institutionId,
+  }) {
+    final claims = portalAuthService.currentClaims;
+    final configured = switch (action) {
+      'verify FDR submissions' => permissionMatrix['verify']!,
+      'approve FDR submissions' || 'approve progressive closure' ||
+      'approve merger cases' => permissionMatrix['approve']!,
+      'issue final NOC' => permissionMatrix['issueNoc']!,
+      'update Grievance Redressal Cell clearance' =>
+        permissionMatrix['grievanceClearance']!,
+      'update Vigilance Cell clearance' =>
+        permissionMatrix['vigilanceClearance']!,
+      'view audit trail' => permissionMatrix['auditTrail']!,
+      _ => allowed,
+    };
+    if (claims == null || !configured.contains(claims.role)) {
+      appendAuditEntry(
+        action: 'Access denied',
+        associatedId: action,
+        actorRole: claims?.role.name ?? 'anonymous',
+        payload: 'Required roles: ${configured.map((role) => role.name).join(', ')}',
+      );
+      throw PermissionDeniedException('You do not have permission to $action.');
+    }
+    if (institutionId != null && claims.institutionId != institutionId) {
+      appendAuditEntry(
+        action: 'Access denied',
+        associatedId: action,
+        actorRole: claims.role.name,
+        payload: 'Institution scope mismatch',
+      );
+      throw PermissionDeniedException('You can only access your institution data.');
+    }
+  }
+
+  DocumentIntegrityResult verifyDocumentIntegrity(String documentId) {
+    final document = _fdrRecordsBySubmissionId.values
+        .expand((record) => record.supportedDocuments)
+        .where((item) => item.id == documentId)
+        .firstOrNull;
+    final bytes = _documentBytes[documentId];
+    if (document == null || bytes == null) {
+      return const DocumentIntegrityResult(
+        isValid: false,
+        message: 'Stored document bytes are unavailable.',
+      );
+    }
+    final actual = checksumForDocumentBytes(bytes);
+    final auditChecksum = _auditEntries
+        .where((entry) => entry.payload.contains(document.sha256))
+        .isNotEmpty;
+    return DocumentIntegrityResult(
+      isValid: actual == document.sha256 && auditChecksum,
+      message: actual == document.sha256 && auditChecksum
+          ? 'Document checksum matches its upload record and audit entry.'
+          : 'Document checksum mismatch: stored bytes may be tampered.',
+    );
+  }
+
+  void replaceStoredDocumentBytes(String documentId, List<int> bytes) {
+    if (!_documentBytes.containsKey(documentId)) {
+      throw ArgumentError('Stored document was not found.');
+    }
+    _documentBytes[documentId] = List<int>.unmodifiable(bytes);
+    _documentWrite = _persistDocumentBytes();
+  }
+
+  Future<void> initializeAuditPersistence(LocalStorage storage) async {
+    _auditStorage = storage;
+    final stored = await readJson(storage, 'aicte.auditChain');
+    final rawEntries = stored?['entries'];
+    _auditEntries.clear();
+    if (rawEntries is List) {
+      _auditEntries
+        ..clear()
+        ..addAll(rawEntries.whereType<Map<String, dynamic>>().map(_auditFromJson));
+    }
+    final rawAnchor = await readJson(storage, 'aicte.auditAnchor');
+    if (rawAnchor != null) {
+      _auditAnchor = AuditChainAnchor(
+        latestIndex: (rawAnchor['latestIndex'] as num).toInt(),
+        latestHash: rawAnchor['latestHash'] as String,
+        count: (rawAnchor['count'] as num).toInt(),
+      );
+    }
+    _auditIntegrity = verifyAuditChain(_auditEntries, anchor: _auditAnchor);
+    notifyListeners();
+  }
+
+  Future<void> _persistAuditChain() async {
+    await _auditStorage.write(
+      'aicte.auditChain',
+      jsonEncode({'entries': _auditEntries.map(_auditToJson).toList()}),
+    );
+    if (_auditEntries.isNotEmpty) {
+      _auditAnchor = AuditChainAnchor(
+        latestIndex: _auditEntries.length - 1,
+        latestHash: _auditEntries.last.entryHash,
+        count: _auditEntries.length,
+      );
+      await _auditStorage.write(
+        'aicte.auditAnchor',
+        jsonEncode({
+          'latestIndex': _auditAnchor!.latestIndex,
+          'latestHash': _auditAnchor!.latestHash,
+          'count': _auditAnchor!.count,
+        }),
+      );
+    }
+    _auditIntegrity = verifyAuditChain(_auditEntries, anchor: _auditAnchor);
+  }
+
+  Future<void> verifyPersistedAuditChain() async {
+    final stored = await readJson(_auditStorage, 'aicte.auditChain');
+    final rawEntries = stored?['entries'];
+    final entries = rawEntries is List
+        ? rawEntries.whereType<Map<String, dynamic>>().map(_auditFromJson).toList()
+        : _auditEntries;
+    _auditIntegrity = verifyAuditChain(entries, anchor: _auditAnchor);
+    notifyListeners();
+  }
+
+  Future<void> tamperPersistedAuditRecord() async {
+    final stored = await readJson(_auditStorage, 'aicte.auditChain');
+    if (stored == null || stored['entries'] is! List) return;
+    _auditBackup = List<AuditEntry>.from(_auditEntries);
+    final entries = (stored['entries'] as List).toList();
+    if (entries.isNotEmpty) {
+      final last = Map<String, dynamic>.from(entries.last as Map);
+      last['payload'] = '${last['payload']} altered';
+      entries[entries.length - 1] = last;
+      await _auditStorage.write('aicte.auditChain', jsonEncode({'entries': entries}));
+    }
+    await verifyPersistedAuditChain();
+  }
+
+  Future<void> restoreAuditBackup() async {
+    final backup = _auditBackup;
+    if (backup == null) return;
+    _auditEntries
+      ..clear()
+      ..addAll(backup);
+    _auditBackup = null;
+    await _persistAuditChain();
+    notifyListeners();
+  }
   List<RuleConfig> get rules => List.unmodifiable(_rules.values);
+  List<Discrepancy> get discrepancies => List.unmodifiable(_discrepancies.values);
+
+  void reconcileDiscrepancies(
+    VerificationSummary summary, {
+    String actor = 'Officer',
+  }) {
+    final activeIssues = summary.issues.where(
+      (issue) => issue.severity != VerificationIssueSeverity.passed,
+    );
+    final activeIds = <String>{};
+    for (final issue in activeIssues) {
+      final id = '${issue.ruleId}:${issue.affectedField}';
+      activeIds.add(id);
+      final previous = _discrepancies[id];
+      final reopened = previous?.status == DiscrepancyStatus.resolved;
+      final event = DiscrepancyEvent(
+        actor: actor,
+        action: reopened ? 'Reopened' : previous == null ? 'Detected' : 'Confirmed',
+        remark: issue.message,
+        at: _clock.now(),
+      );
+      _discrepancies[id] = Discrepancy(
+        id: id,
+        ruleId: issue.ruleId,
+        field: issue.affectedField,
+        severity: issue.severity,
+        status: reopened
+            ? DiscrepancyStatus.reopened
+            : previous?.status == DiscrepancyStatus.waived
+            ? DiscrepancyStatus.waived
+            : previous?.status == DiscrepancyStatus.correctionSubmitted
+            ? DiscrepancyStatus.open
+            : previous?.status ?? DiscrepancyStatus.open,
+        detectedAt: previous?.detectedAt ?? _clock.now(),
+        history: [...?previous?.history, event],
+      );
+    }
+    for (final entry in _discrepancies.entries.toList()) {
+      final item = entry.value;
+      if (!activeIds.contains(item.id) &&
+          (item.status == DiscrepancyStatus.open ||
+              item.status == DiscrepancyStatus.reopened ||
+              item.status == DiscrepancyStatus.correctionSubmitted)) {
+        _discrepancies[entry.key] = Discrepancy(
+          id: item.id,
+          ruleId: item.ruleId,
+          field: item.field,
+          severity: item.severity,
+          status: DiscrepancyStatus.resolved,
+          detectedAt: item.detectedAt,
+          history: [
+            ...item.history,
+            DiscrepancyEvent(
+              actor: actor,
+              action: 'Resolved',
+              remark: 'No longer detected during verification.',
+              at: _clock.now(),
+            ),
+          ],
+        );
+      }
+    }
+    notifyListeners();
+  }
+
+  void waiveDiscrepancy(
+    String id, {
+    required String actor,
+    required String remark,
+  }) {
+    final item = _discrepancies[id];
+    if (item == null) throw ArgumentError('Discrepancy was not found.');
+    if (item.severity != VerificationIssueSeverity.warning) {
+      throw StateError('Only warning discrepancies may be waived.');
+    }
+    if (remark.trim().isEmpty) throw ArgumentError('A waiver remark is required.');
+    _discrepancies[id] = Discrepancy(
+      id: item.id,
+      ruleId: item.ruleId,
+      field: item.field,
+      severity: item.severity,
+      status: DiscrepancyStatus.waived,
+      detectedAt: item.detectedAt,
+      history: [
+        ...item.history,
+        DiscrepancyEvent(
+          actor: actor,
+          action: 'Waived',
+          remark: remark.trim(),
+          at: _clock.now(),
+        ),
+      ],
+    );
+    appendAuditEntry(
+      action: 'Warning discrepancy waived',
+      associatedId: id,
+      actorRole: actor,
+      payload: remark.trim(),
+    );
+    notifyListeners();
+  }
+  DateTime? get lastReminderScanAt => _lastReminderScanAt;
+  int get lastReminderCreated => _lastReminderCreated;
+  int get lastReminderAlreadySent => _lastReminderAlreadySent;
+
+  Future<void> initializeReminderPersistence(LocalStorage storage) async {
+    _reminderStorage = storage;
+    final stored = await readJson(storage, 'aicte.reminderState');
+    if (stored == null) return;
+    _reminderKeys
+      ..clear()
+      ..addAll((stored['keys'] as List<dynamic>? ?? const []).cast<String>());
+    final rawScan = stored['lastScanAt'];
+    _lastReminderScanAt = rawScan is String ? DateTime.tryParse(rawScan) : null;
+    _lastReminderCreated = (stored['created'] as num?)?.toInt() ?? 0;
+    _lastReminderAlreadySent = (stored['alreadySent'] as num?)?.toInt() ?? 0;
+    notifyListeners();
+  }
+
+  Future<void> _persistReminderState() => _reminderStorage.write(
+    'aicte.reminderState',
+    jsonEncode({
+      'keys': _reminderKeys.toList(),
+      'lastScanAt': _lastReminderScanAt?.toIso8601String(),
+      'created': _lastReminderCreated,
+      'alreadySent': _lastReminderAlreadySent,
+    }),
+  );
 
   List<CaseHistoryEvent> caseHistory(String caseId) => _releaseCases[caseId]
           ?.history ??
@@ -3218,11 +4105,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
     }
     final from = _caseStatusFromLabel(current.status);
     if (from == to) return;
-    if (!(ALLOWED_TRANSITIONS[from] ?? const {}).contains(to)) {
-      throw InvalidTransitionException(
-        'Cannot transition ${current.status} to ${_caseStatusLabel(to)}.',
-      );
-    }
+    validateCaseTransition(from, to);
     final nextLabel = displayStatus ?? _caseStatusLabel(to);
     final eligibility = ReleaseEligibilityService.evaluate(
       record: current,
@@ -3281,6 +4164,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
   int runReminderScan({DateTime? today}) {
     final scanDate = today ?? DateTime.now();
     var created = 0;
+    var alreadySent = 0;
     for (final item in calculateFdrDeadlines(
       _dashboardSubmissions,
       today: scanDate,
@@ -3310,8 +4194,15 @@ class DemoFdrPortalStore extends ChangeNotifier {
           payload: '${item.status.label}; cycle $cycle',
         );
         created++;
+      } else {
+        alreadySent++;
       }
     }
+    _lastReminderScanAt = scanDate;
+    _lastReminderCreated = created;
+    _lastReminderAlreadySent = alreadySent;
+    _reminderWrite = _persistReminderState();
+    notifyListeners();
     return created;
   }
 
@@ -3340,6 +4231,118 @@ class DemoFdrPortalStore extends ChangeNotifier {
     );
     notifyListeners();
     return true;
+  }
+
+  FdrSubmission createRenewal({
+    required String parentFdrReference,
+    required String newFdrNumber,
+    required String bank,
+    required int amount,
+    required String issueDate,
+    required int tenureMonths,
+  }) {
+    final parentSubmission = _dashboardSubmissions
+        .where((item) => item.reference == parentFdrReference)
+        .firstOrNull;
+    final parentRecord = parentSubmission == null
+        ? null
+        : _fdrRecordsBySubmissionId[parentSubmission.submissionId];
+    if (parentSubmission == null || parentRecord == null) {
+      throw ArgumentError('Parent FDR was not found.');
+    }
+    if (newFdrNumber.trim().isEmpty ||
+        _dashboardSubmissions.any((item) => item.reference == newFdrNumber)) {
+      throw ArgumentError('Renewal FDR number must be unique.');
+    }
+    if (amount <= 0 || tenureMonths <= 0) {
+      throw ArgumentError('Renewal amount and tenure must be greater than zero.');
+    }
+    final parsedIssue = _parsePortalDate(issueDate);
+    final parentMaturity = _parsePortalDate(parentRecord.maturityDate);
+    if (parsedIssue == null || parentMaturity == null || parsedIssue.isBefore(parentMaturity)) {
+      throw ArgumentError('Renewal issue date must be on or after parent maturity.');
+    }
+    final maturity = DateTime(
+      parsedIssue.year,
+      parsedIssue.month + tenureMonths,
+      parsedIssue.day,
+    );
+    final id = _newInstitutionSubmissionId();
+    final childRecord = FdrRecord(
+      institution: parentRecord.institution,
+      institutionId: parentRecord.institutionId,
+      submissionId: id,
+      bank: bank,
+      fdrNumber: newFdrNumber,
+      declaredDepositAmount: amount,
+      receiptAmount: amount,
+      issueDate: issueDate,
+      maturityDate: _parsePortalDateLabel(maturity),
+      declaredTenureMonths: tenureMonths,
+      enteredTenureMonths: tenureMonths,
+      lienInformation: parentRecord.lienInformation,
+      submissionStatus: 'Pending Review',
+      documents: parentRecord.documents,
+      parentFdrReference: parentFdrReference,
+    );
+    final child = FdrSubmission(
+      institution: parentRecord.institution,
+      institutionId: parentRecord.institutionId,
+      submissionId: id,
+      submittedOn: _shortDate(_clock.now()),
+      reference: newFdrNumber,
+      amount: '₹${_formatCurrency(amount)}',
+      status: VerificationStatus.pending,
+      bankName: bank,
+      issues: const [],
+    );
+    _fdrRecordsBySubmissionId[id] = childRecord;
+    _dashboardSubmissions.add(child);
+    _demoFdrRecords[newFdrNumber] = DemoFdrMasterRecord(
+      institution: parentRecord.institution,
+      institutionId: parentRecord.institutionId,
+      fdrReference: newFdrNumber,
+      amount: amount,
+    );
+    _fdrRecordsBySubmissionId[parentSubmission.submissionId] =
+        parentRecord.copyWith(submissionStatus: 'Renewed');
+    appendAuditEntry(
+      action: 'FDR renewal created',
+      associatedId: id,
+      actorRole: 'Demo Officer',
+      payload: 'Parent $parentFdrReference; child $newFdrNumber',
+    );
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.officer,
+      title: 'FDR renewal submitted',
+      message: '$newFdrNumber renews $parentFdrReference.',
+      category: NotificationCategory.submission,
+      relatedId: id,
+      eventKey: 'renewal-$id',
+    );
+    notifyListeners();
+    return child;
+  }
+
+  List<FdrRecord> renewalLineage(String fdrReference) {
+    final records = <FdrRecord>[];
+    var current = _fdrRecordsBySubmissionId.values
+        .where((record) => record.fdrNumber == fdrReference)
+        .firstOrNull;
+    while (current != null) {
+      records.insert(0, current);
+      final parent = current.parentFdrReference;
+      current = parent == null
+          ? null
+          : _fdrRecordsBySubmissionId.values
+                .where((record) => record.fdrNumber == parent)
+                .firstOrNull;
+    }
+    final children = _fdrRecordsBySubmissionId.values.where(
+      (record) => record.parentFdrReference == fdrReference,
+    );
+    records.addAll(children);
+    return List.unmodifiable(records);
   }
 
   FdrRecord? fdrRecordForSubmission(String submissionId) =>
@@ -3630,11 +4633,14 @@ class DemoFdrPortalStore extends ChangeNotifier {
   }
 
   void selectReleaseCase(String caseId) {
-    final record = _releaseCases[caseId];
+    final record = _releaseCases.values
+        .where((item) => item.caseId == caseId)
+        .firstOrNull;
     if (record == null) return;
-    _selectedReleaseCaseId = caseId;
     _selectedCaseType = record.caseType;
     selectSubmission(record.submissionId);
+    _selectedReleaseCaseId = caseId;
+    notifyListeners();
   }
 
   void rejectSubmission(String submissionId, {String? reason}) {
@@ -3917,13 +4923,17 @@ class DemoFdrPortalStore extends ChangeNotifier {
   }
 
   void resetDemoData() {
+    portalAuthService.signOut();
     _verificationScenario = DemoVerificationScenario.blocked;
     _currentSubmission = _blockedSubmission;
     _lastVerification = FdrVerificationService.runVerification(
       _blockedSubmission,
+      clock: _clock,
+      rules: _rules.values,
     );
     _verificationCurrent = true;
     _releaseCases.clear();
+    _discrepancies.clear();
     _mergerRelationships.clear();
     _selectedCaseType = 'Normal Release';
     _selectedReleaseCaseId = null;
@@ -3931,6 +4941,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
     _reminderKeys.clear();
     _documentBytes.clear();
     _seedAudit();
+    _seedDeterministicAuditEvents();
     _dashboardSubmissions
       ..clear()
       ..addAll([
@@ -3950,7 +4961,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
           institutionId: 'INST-00125',
           submissionId: 'FDR-2026-00125',
           submittedOn: '23 Oct 2026',
-          reference: 'FDR-NC-550318',
+          reference: 'FDR-EX-884201',
           amount: '₹3,00,000',
           status: VerificationStatus.pending,
           bankName: 'National Commerce Bank',
@@ -4012,8 +5023,82 @@ class DemoFdrPortalStore extends ChangeNotifier {
       });
     _fdrRecordsBySubmissionId
       ..clear()
-      ..['FDR-2026-00124'] = _blockedSubmission
-      ..['FDR-2026-00128'] = _rejectedSubmission;
+      ..['FDR-2026-00124'] = _blockedSubmission.copyWith(
+        issueDate: _dateMonthsBefore(_clock.now().add(const Duration(days: 6)), 36),
+        maturityDate: _dateRelative(6),
+        declaredTenureMonths: 36,
+        enteredTenureMonths: 36,
+      )
+      ..['FDR-2026-00125'] = _seededFdrRecord(
+        submissionId: 'FDR-2026-00125', fdrNumber: 'FDR-EX-884201',
+        institution: 'National College of Engineering', institutionId: 'INST-00125',
+        bank: 'National Commerce Bank', amount: 300000,
+        issueDate: _dateMonthsBefore(_clock.now().add(const Duration(days: 500)), 36),
+        maturityDate: _dateRelative(500),
+      )
+      ..['FDR-2026-00126'] = _seededFdrRecord(
+        submissionId: 'FDR-2026-00126', fdrNumber: 'FDR-MI-719643',
+        institution: 'Metropolitan Institute of Science', institutionId: 'INST-00126',
+        bank: 'Metropolitan Bank', amount: 750000,
+        issueDate: _dateMonthsBefore(_clock.now().add(const Duration(days: 20)), 36),
+        maturityDate: _dateRelative(20),
+        sourceValues: {
+          DocumentSource.fdrMaster: {'trustName': 'Example Educational Trust'},
+          DocumentSource.receipt: {'trustName': 'Metropolitan Education Society'},
+          DocumentSource.requestLetter: {'trustName': 'Example Educational Trust'},
+          DocumentSource.affidavit: {'trustName': 'Example Educational Trust'},
+        },
+        lienInformation: 'Not provided',
+      )
+      ..['FDR-2026-00127'] = _seededFdrRecord(
+        submissionId: 'FDR-2026-00127', fdrNumber: 'FDR-EIT-771530',
+        institution: 'Example Institute of Technology', institutionId: 'INST-DEMO-0042',
+        bank: 'Civic Union Bank', amount: 350000,
+        issueDate: _dateMonthsBefore(_clock.now().add(const Duration(days: 30)), 36),
+        maturityDate: _dateRelative(30),
+      )
+      ..['FDR-2026-00128'] = _rejectedSubmission.copyWith(
+        issueDate: _dateRelative(-500),
+        maturityDate: _dateRelative(-10),
+        declaredTenureMonths: 0,
+        enteredTenureMonths: 0,
+      )
+      ..['FDR-2026-00129'] = _seededFdrRecord(
+        submissionId: 'FDR-2026-00129', fdrNumber: 'FDR-EIT-330817',
+        institution: 'Example Institute of Technology', institutionId: 'INST-DEMO-0042',
+        bank: 'Example National Bank', amount: 425000,
+        issueDate: '03 October 2026', maturityDate: 'invalid-date',
+        isDeliberateInvalidDate: true,
+      );
+    final renewedParent = _fdrRecordsBySubmissionId['FDR-2026-00127']!;
+    _fdrRecordsBySubmissionId['FDR-CHILD-00127'] = renewedParent.copyWith(
+      submissionId: 'FDR-CHILD-00127',
+      fdrNumber: 'FDR-EIT-771530-R1',
+      issueDate: _dateRelative(31),
+      maturityDate: _dateRelative(396),
+      parentFdrReference: renewedParent.fdrNumber,
+      submissionStatus: 'Pending Review',
+    );
+    _fdrRecordsBySubmissionId['FDR-2026-00127'] = renewedParent.copyWith(
+      submissionStatus: 'Renewed',
+    );
+    final maturedAt = _clock.now().subtract(const Duration(days: 10));
+    _fdrRecordsBySubmissionId['FDR-2026-00128'] = _rejectedSubmission.copyWith(
+      issueDate: _dateMonthsBefore(maturedAt, 36),
+      maturityDate: _dateRelative(-10),
+      declaredTenureMonths: 36,
+      enteredTenureMonths: 36,
+    );
+    _currentSubmission = _fdrRecordsBySubmissionId['FDR-2026-00124']!.copyWith(
+      declaredDepositAmount: 500000,
+      receiptAmount: 450000,
+    );
+    _fdrRecordsBySubmissionId['FDR-2026-00124'] = _currentSubmission;
+    _lastVerification = FdrVerificationService.runVerification(
+      _currentSubmission,
+      clock: _clock,
+      rules: _rules.values,
+    );
     _demoFdrRecords
       ..clear()
       ..addAll({
@@ -4055,6 +5140,26 @@ class DemoFdrPortalStore extends ChangeNotifier {
         ),
       });
     _selectedReleaseCaseId = null;
+    _auditWrite = _persistAuditChain();
+    notifyListeners();
+  }
+
+  void seedDemoCases() {
+    if (_releaseCases.isNotEmpty) return;
+    createReleaseCase();
+    _releaseCases['Normal Release'] = _releaseCases['Normal Release']!.copyWith(
+      status: 'Ready for Final NOC',
+      clearances: [
+        _releaseCases['Normal Release']!.clearances.first.copyWith(status: 'Cleared'),
+        _releaseCases['Normal Release']!.clearances.last,
+      ],
+    );
+    _releaseCases['Progressive Closure'] = _releaseCases['Progressive Closure']!.copyWith(
+      status: 'Clearance Pending',
+    );
+    _releaseCases['Merger'] = _releaseCases['Merger']!.copyWith(
+      status: 'Under Review',
+    );
     notifyListeners();
   }
 
@@ -4109,6 +5214,37 @@ class DemoFdrPortalStore extends ChangeNotifier {
       );
   }
 
+  void _seedDeterministicAuditEvents() {
+    const actions = [
+      'Queue reviewed',
+      'Deadline reminder scanned',
+      'Renewal lineage opened',
+      'Amount discrepancy detected',
+      'Duplicate FDR detected',
+      'Trust name reviewed',
+      'Lien warning recorded',
+      'Correction submitted',
+      'Verification rerun',
+      'Release case opened',
+      'Checklist reviewed',
+      'Grievance clearance updated',
+      'Vigilance clearance updated',
+      'Case status changed',
+      'Audit chain verified',
+      'Report exported',
+      'Institution risk calculated',
+      'Deadline queue refreshed',
+    ];
+    for (final action in actions) {
+      appendAuditEntry(
+        action: action,
+        associatedId: 'FDR-2026-00124',
+        actorRole: 'Officer',
+        payload: 'Seeded workflow event',
+      );
+    }
+  }
+
   void appendAuditEntry({
     required String action,
     required String associatedId,
@@ -4149,6 +5285,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
         entryHash: entryHash,
       ),
     );
+    _auditWrite = _persistAuditChain();
     notifyListeners();
   }
 
@@ -4205,6 +5342,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
   void setLastVerification(VerificationSummary summary) {
     _lastVerification = summary;
     _verificationCurrent = true;
+    reconcileDiscrepancies(summary);
     _syncDashboardSubmission(
       summary.blocking > 0
           ? VerificationStatus.blocked
@@ -4347,6 +5485,9 @@ class DemoFdrPortalStore extends ChangeNotifier {
   }
 
   VerificationSummary runCurrentVerification() {
+    if (portalAuthService.currentClaims != null) {
+      requirePermission('verify FDR submissions', allowed: permissionMatrix['verify']!);
+    }
     final summary = _verifyFdrRecord(_currentSubmission);
     setLastVerification(summary);
     return summary;
@@ -4417,6 +5558,9 @@ class DemoFdrPortalStore extends ChangeNotifier {
   }
 
   bool approveFdrSubmissionInDemoMode() {
+    if (portalAuthService.currentClaims != null) {
+      requirePermission('approve FDR submissions', allowed: {AuthRole.officer});
+    }
     if (!canApproveFdrSubmissionInDemoMode()) return false;
     final currentCase = releaseCase!;
     _approveSubmissionForCase(currentCase);
@@ -4577,6 +5721,13 @@ class DemoFdrPortalStore extends ChangeNotifier {
         effectiveDate: '01 November 2026',
       ),
     );
+    final normal = _releaseCases['Normal Release'];
+    if (normal != null && normal.submissionId != _currentSubmission.submissionId) {
+      _releaseCases['Normal Release'] = normal.copyWith(
+        submissionId: _currentSubmission.submissionId,
+        institution: _currentSubmission.institution,
+      );
+    }
     _syncNormalReleaseStatus();
     notifyListeners();
   }
@@ -4624,6 +5775,19 @@ class DemoFdrPortalStore extends ChangeNotifier {
     String newStatus, {
     String? remark,
   }) {
+    final claims = portalAuthService.currentClaims;
+    if (claims != null &&
+        claims.role != AuthRole.officer &&
+        !((clearanceName == 'Grievance Redressal Cell' &&
+                claims.role == AuthRole.grievanceCell) ||
+            (clearanceName == 'Vigilance Cell' &&
+                claims.role == AuthRole.vigilanceCell))) {
+      requirePermission('update $clearanceName clearance', allowed: {
+        AuthRole.officer,
+        if (clearanceName == 'Grievance Redressal Cell') AuthRole.grievanceCell,
+        if (clearanceName == 'Vigilance Cell') AuthRole.vigilanceCell,
+      });
+    }
     final currentCase = releaseCase;
     if (currentCase == null) return;
     final index = currentCase.clearances.indexWhere(
@@ -4824,8 +5988,16 @@ class DemoFdrPortalStore extends ChangeNotifier {
     required List<int> bytes,
     required String mimeType,
   }) {
-    final currentCase = _releaseCases[caseId];
-    if (currentCase == null || bytes.length > 5 * 1024 * 1024) return null;
+    validateDocumentUpload(
+      fileName: selectedFileName,
+      bytes: bytes,
+      mimeType: mimeType,
+    );
+    final caseEntry = _releaseCases.entries
+      .where((entry) => entry.value.caseId == caseId)
+      .firstOrNull;
+    final currentCase = caseEntry?.value;
+    if (currentCase == null) return null;
     final index = currentCase.checklist.indexWhere(
       (item) => item.fileName == requiredFileName,
     );
@@ -4864,7 +6036,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
       supportedDocuments: [...record.supportedDocuments, metadata],
     );
     _documentBytes[metadata.id] = List<int>.unmodifiable(bytes);
-    _releaseCases[caseId] = currentCase.copyWith(
+    _documentWrite = _persistDocumentBytes();
+    _releaseCases[caseEntry!.key] = currentCase.copyWith(
       checklist: checklist,
       history: [...currentCase.history, history],
     );
@@ -4894,6 +6067,9 @@ class DemoFdrPortalStore extends ChangeNotifier {
   }
 
   void issueDemoNoc() {
+    if (portalAuthService.currentClaims != null) {
+      requirePermission('issue final NOC', allowed: {AuthRole.officer});
+    }
     final currentCase = releaseCase;
     if (currentCase == null ||
         currentCase.caseType != 'Normal Release' ||
@@ -4941,6 +6117,9 @@ class DemoFdrPortalStore extends ChangeNotifier {
   }
 
   void approveProgressiveClosureInDemoMode() {
+    if (portalAuthService.currentClaims != null) {
+      requirePermission('approve progressive closure', allowed: {AuthRole.officer});
+    }
     final currentCase = releaseCase;
     if (currentCase == null || currentCase.caseType != 'Progressive Closure') {
       return;
@@ -4959,6 +6138,9 @@ class DemoFdrPortalStore extends ChangeNotifier {
   }
 
   void approveMergerInDemoMode() {
+    if (portalAuthService.currentClaims != null) {
+      requirePermission('approve merger cases', allowed: {AuthRole.officer});
+    }
     final currentCase = releaseCase;
     if (currentCase == null || currentCase.caseType != 'Merger') {
       return;
@@ -5073,6 +6255,35 @@ class SupportedDocument {
   final Map<String, String> extractedFields;
 }
 
+class DocumentIntegrityResult {
+  const DocumentIntegrityResult({required this.isValid, required this.message});
+
+  final bool isValid;
+  final String message;
+}
+
+String validateDocumentUpload({
+  required String fileName,
+  required List<int> bytes,
+  required String mimeType,
+}) {
+  final extension = fileName.split('.').last.toLowerCase();
+  const supportedTypes = <String, String>{
+    'pdf': 'application/pdf',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+  };
+  final expectedMime = supportedTypes[extension];
+  if (expectedMime == null || expectedMime != mimeType) {
+    throw ArgumentError('Only PDF, JPG, JPEG, and PNG files are supported.');
+  }
+  if (bytes.isEmpty || bytes.length > 5 * 1024 * 1024) {
+    throw ArgumentError('Document must contain bytes and be no larger than 5 MB.');
+  }
+  return expectedMime;
+}
+
 enum DiscrepancyStatus { open, correctionSubmitted, resolved, waived, reopened }
 
 class DiscrepancyEvent {
@@ -5151,7 +6362,7 @@ List<RuleConfig> defaultRuleConfigs() => const [
   RuleConfig(id: 'date-consistency', name: 'Date consistency', description: 'Maturity follows issue date.', severity: RuleSeverity.blocking, enabled: true),
   RuleConfig(id: 'tenure-consistency', name: 'Tenure tolerance', description: 'Tenure matches the date interval.', severity: RuleSeverity.blocking, enabled: true, params: {'toleranceMonths': 0}),
   RuleConfig(id: 'institution-name-mismatch', name: 'Institution name similarity', description: 'Compare institution names.', severity: RuleSeverity.blocking, enabled: true, params: {'threshold': 0.8}),
-  RuleConfig(id: 'trust-name-mismatch', name: 'Trust name similarity', description: 'Compare trust names.', severity: RuleSeverity.blocking, enabled: true, params: {'threshold': 0.8}),
+  RuleConfig(id: 'trust-name-mismatch', name: 'Trust name similarity', description: 'Compare trust names.', severity: RuleSeverity.warning, enabled: true, params: {'threshold': 0.8}),
   RuleConfig(id: 'lien-information', name: 'Lien required', description: 'Require lien information.', severity: RuleSeverity.warning, enabled: true),
   RuleConfig(id: 'maturity-warning', name: 'Maturity warning', description: 'Warn before maturity.', severity: RuleSeverity.warning, enabled: true, params: {'warningDays': 30}),
   RuleConfig(id: 'duplicate-fdr', name: 'Duplicate FDR', description: 'Reject duplicate references.', severity: RuleSeverity.blocking, enabled: true),
@@ -5177,6 +6388,7 @@ class FdrRecord {
     this.parentFdrReference,
     this.sourceValues = const {},
     this.supportedDocuments = const [],
+    this.isDeliberateInvalidDate = false,
   });
 
   final String institution;
@@ -5197,6 +6409,7 @@ class FdrRecord {
   final String? parentFdrReference;
   final Map<DocumentSource, Map<String, String?>> sourceValues;
   final List<SupportedDocument> supportedDocuments;
+  final bool isDeliberateInvalidDate;
 
   FdrRecord copyWith({
     String? institution,
@@ -5217,6 +6430,7 @@ class FdrRecord {
     String? parentFdrReference,
     Map<DocumentSource, Map<String, String?>>? sourceValues,
     List<SupportedDocument>? supportedDocuments,
+    bool? isDeliberateInvalidDate,
   }) => FdrRecord(
     institution: institution ?? this.institution,
     institutionId: institutionId ?? this.institutionId,
@@ -5237,6 +6451,8 @@ class FdrRecord {
     parentFdrReference: parentFdrReference ?? this.parentFdrReference,
     sourceValues: sourceValues ?? this.sourceValues,
     supportedDocuments: supportedDocuments ?? this.supportedDocuments,
+    isDeliberateInvalidDate:
+      isDeliberateInvalidDate ?? this.isDeliberateInvalidDate,
   );
 }
 
@@ -5329,6 +6545,7 @@ class FdrDeadlineInfo {
     required this.daysRemaining,
     required this.status,
     required this.nextAction,
+    this.isRenewed = false,
   });
 
   final FdrSubmission submission;
@@ -5336,6 +6553,7 @@ class FdrDeadlineInfo {
   final int? daysRemaining;
   final MaturityStatus status;
   final String nextAction;
+  final bool isRenewed;
 }
 
 List<FdrDeadlineInfo> calculateFdrDeadlines(
@@ -5352,6 +6570,7 @@ List<FdrDeadlineInfo> calculateFdrDeadlines(
     final record = DemoFdrPortalStore.instance.fdrRecordForSubmission(
       submission.submissionId,
     );
+    final renewed = record?.submissionStatus == 'Renewed';
     final rawMaturity = maturityDates.containsKey(submission.submissionId)
         ? maturityDates[submission.submissionId]
         : record?.maturityDate;
@@ -5363,6 +6582,7 @@ List<FdrDeadlineInfo> calculateFdrDeadlines(
         daysRemaining: null,
         status: MaturityStatus.invalid,
         nextAction: 'Review maturity date',
+        isRenewed: renewed,
       );
     }
     final date = DateTime(maturity.year, maturity.month, maturity.day);
@@ -5384,6 +6604,7 @@ List<FdrDeadlineInfo> calculateFdrDeadlines(
           : status == MaturityStatus.invalid
           ? 'Review maturity date'
           : 'Monitor maturity window',
+          isRenewed: renewed,
     );
   }).toList();
   results.sort((left, right) {
@@ -5437,6 +6658,20 @@ class InstitutionRiskAssessment {
   final List<String> reasons;
 }
 
+class RiskReason {
+  const RiskReason(this.label, this.points);
+
+  final String label;
+  final int points;
+}
+
+const Map<String, int> riskWeights = {
+  'blocking discrepancy': 30,
+  'matured FDR without renewal': 20,
+  'overdue clearance': 10,
+  'repeated correction': 10,
+};
+
 InstitutionRiskAssessment assessInstitutionRisk(
   Iterable<FdrSubmission> submissions, {
   DateTime? today,
@@ -5448,8 +6683,8 @@ InstitutionRiskAssessment assessInstitutionRisk(
       .where((item) => item.status == SubmissionStatus.blocked)
       .length;
   if (blocked > 0) {
-    score += blocked * 3;
-    reasons.add('$blocked blocking verification issue(s)');
+    score += blocked * riskWeights['blocking discrepancy']!;
+    reasons.add('$blocked blocking discrepancies +${blocked * riskWeights['blocking discrepancy']!}');
   }
   final corrections = records
       .where(
@@ -5459,8 +6694,8 @@ InstitutionRiskAssessment assessInstitutionRisk(
       )
       .length;
   if (corrections > 0) {
-    score += corrections;
-    reasons.add('$corrections returned or rejected submission(s)');
+    score += corrections * riskWeights['repeated correction']!;
+    reasons.add('$corrections repeated corrections +${corrections * riskWeights['repeated correction']!}');
   }
   final deadlines = calculateFdrDeadlines(records, today: today);
   final urgent = deadlines
@@ -5471,15 +6706,21 @@ InstitutionRiskAssessment assessInstitutionRisk(
       )
       .length;
   if (urgent > 0) {
-    score += urgent * 2;
-    reasons.add('$urgent urgent maturity item(s)');
+    final matured = deadlines.where((item) => item.status == MaturityStatus.matured && !item.isRenewed).length;
+    final critical = urgent - matured;
+    score += matured * riskWeights['matured FDR without renewal']!;
+    score += critical * 5;
+    if (matured > 0) reasons.add('$matured matured FDR without renewal +${matured * riskWeights['matured FDR without renewal']!}');
+    if (critical > 0) reasons.add('$critical critical maturity item(s) +${critical * 5}');
   }
   return InstitutionRiskAssessment(
-    category: score >= 5
-        ? 'High'
-        : score >= 2
-        ? 'Medium'
-        : 'Low',
+    category: score >= 100
+      ? 'Critical'
+      : score >= 30
+      ? 'High'
+      : score >= 10
+      ? 'Medium'
+      : 'Low',
     score: score,
     reasons: reasons.isEmpty
         ? const ['No active risk factors found']
@@ -5496,6 +6737,9 @@ class ActionQueueItem {
     required this.priority,
     required this.reason,
     required this.relatedSubmissionId,
+    this.category = 'Pending review',
+    this.dueDate,
+    this.relatedCaseId,
   });
 
   final String id;
@@ -5505,6 +6749,109 @@ class ActionQueueItem {
   final String priority;
   final String reason;
   final String relatedSubmissionId;
+  final String category;
+  final DateTime? dueDate;
+  final String? relatedCaseId;
+}
+
+abstract interface class ReportsRepository {
+  List<FdrSubmission> get submissions;
+  int get totalSubmissions;
+  int get totalInstitutions;
+  int get totalDeposit;
+  int get resolvedCount;
+  Map<SubmissionStatus, int> get statusCounts;
+  Map<SubmissionStatus, int> get statusPercentages;
+  Map<SubmissionStatus, int> get depositByStatus;
+  Map<String, int> get bankCounts;
+  Map<String, int> get depositByBank;
+  Map<String, InstitutionRiskAssessment> get institutionRisk;
+  List<FdrDeadlineInfo> get deadlines;
+  List<ActionQueueItem> get actionQueue;
+}
+
+class StoreReportsRepository implements ReportsRepository {
+  StoreReportsRepository(this.store);
+
+  final DemoFdrPortalStore store;
+
+  @override
+  List<FdrSubmission> get submissions => store.dashboardSubmissions;
+
+  @override
+  int get totalSubmissions => submissions.length;
+
+  @override
+  int get totalInstitutions => institutions(submissions).length;
+
+  @override
+  int get totalDeposit => submissions.fold(0, (sum, item) => sum + item.depositAmount);
+
+  @override
+  int get resolvedCount => submissions
+      .where((item) => item.status != SubmissionStatus.pendingReview)
+      .length;
+
+  @override
+  Map<SubmissionStatus, int> get statusCounts => {
+    for (final status in SubmissionStatus.values)
+      status: countByStatus(submissions, status),
+  };
+
+  @override
+  Map<SubmissionStatus, int> get statusPercentages => statusPercentagesFor(submissions);
+
+  @override
+  Map<SubmissionStatus, int> get depositByStatus => totalDepositByStatus(submissions);
+
+  @override
+  Map<String, int> get depositByBank => totalDepositByBank(submissions);
+
+  @override
+  Map<String, int> get bankCounts => {
+    for (final entry in submissionsByBank(submissions).entries)
+      entry.key: entry.value.length,
+  };
+
+  @override
+  Map<String, InstitutionRiskAssessment> get institutionRisk => {
+    for (final institution in institutions(submissions))
+      institution.id: assessInstitutionRisk(
+        submissionsForInstitution(submissions, institution.id),
+      ),
+  };
+
+  @override
+  List<FdrDeadlineInfo> get deadlines => store.deadlineItems;
+
+  @override
+  List<ActionQueueItem> get actionQueue => buildOfficerActionQueue(store);
+}
+
+enum QueueFilter { all, blocking, pendingReview, clearances, deadlines, corrections }
+
+enum QueueTarget { verificationResults, releaseClearances, deadlineDetails, correction }
+
+QueueTarget queueTargetFor(ActionQueueItem item) {
+  final categories = item.category.split(', ');
+  if (categories.contains('Corrections')) return QueueTarget.correction;
+  if (categories.contains('Clearances')) return QueueTarget.releaseClearances;
+  if (categories.contains('Deadlines')) return QueueTarget.deadlineDetails;
+  if (categories.contains('Blocking discrepancies')) {
+    return QueueTarget.verificationResults;
+  }
+  return QueueTarget.deadlineDetails;
+}
+
+extension QueueFilterLabel on QueueFilter {
+  String get label => switch (this) {
+    QueueFilter.all => 'All',
+    QueueFilter.blocking => 'Blocking discrepancies',
+    QueueFilter.pendingReview => 'Pending review',
+    QueueFilter.clearances => 'Clearances',
+    QueueFilter.deadlines => 'Deadlines',
+    QueueFilter.corrections => 'Corrections',
+  };
 }
 
 List<ActionQueueItem> buildOfficerActionQueue(
@@ -5518,7 +6865,32 @@ List<ActionQueueItem> buildOfficerActionQueue(
         submission.status == SubmissionStatus.correctionRequested) {
       final blocked =
           submission.status == SubmissionStatus.blocked ||
-          submission.issues.isNotEmpty;
+            submission.issues.isNotEmpty;
+        final deadline = calculateFdrDeadlines(
+          [submission],
+          today: today,
+        ).first;
+        final hasDeadline = !deadline.isRenewed &&
+            (deadline.status == MaturityStatus.critical ||
+                deadline.status == MaturityStatus.matured);
+        final categories = <String>[
+          if (submission.status == SubmissionStatus.correctionRequested)
+            'Corrections'
+          else if (blocked)
+            'Blocking discrepancies'
+          else
+            'Pending review',
+          if (hasDeadline) 'Deadlines',
+        ];
+        final reasons = <String>[
+          if (submission.status == SubmissionStatus.correctionRequested)
+            'Correction requires review'
+          else if (blocked)
+            'Review blocking discrepancies'
+          else
+            'Awaiting officer review',
+          if (hasDeadline) deadline.nextAction,
+        ];
       items.add(
         ActionQueueItem(
           id: 'submission-${submission.submissionId}',
@@ -5526,10 +6898,10 @@ List<ActionQueueItem> buildOfficerActionQueue(
           reference: submission.reference,
           status: submission.status.label,
           priority: blocked ? 'High' : 'Routine',
-          reason: blocked
-              ? 'Review blocking discrepancies'
-              : 'Awaiting officer review',
+          reason: reasons.join('; '),
           relatedSubmissionId: submission.submissionId,
+          category: categories.join(', '),
+          dueDate: hasDeadline ? deadline.maturityDate : null,
         ),
       );
     }
@@ -5538,6 +6910,7 @@ List<ActionQueueItem> buildOfficerActionQueue(
     store.dashboardSubmissions,
     today: today,
   )) {
+    if (deadline.isRenewed) continue;
     if (deadline.status == MaturityStatus.critical ||
         deadline.status == MaturityStatus.matured) {
       items.add(
@@ -5549,6 +6922,8 @@ List<ActionQueueItem> buildOfficerActionQueue(
           priority: 'High',
           reason: deadline.nextAction,
           relatedSubmissionId: deadline.submission.submissionId,
+          category: 'Deadlines',
+          dueDate: deadline.maturityDate,
         ),
       );
     }
@@ -5567,25 +6942,51 @@ List<ActionQueueItem> buildOfficerActionQueue(
           priority: 'High',
           reason: '$pendingCells clearance(s) require attention',
           relatedSubmissionId: caseRecord.submissionId,
+          category: 'Clearances',
+          relatedCaseId: caseRecord.caseId,
         ),
       );
     }
   }
-  final unique = <String, ActionQueueItem>{
-    for (final item in items) item.id: item,
-  };
+  final unique = <String, ActionQueueItem>{};
+  for (final item in items) {
+    final key = 'submission-${item.relatedSubmissionId}';
+    final existing = unique[key];
+    unique[key] = existing == null
+        ? item
+        : ActionQueueItem(
+            id: existing.id,
+            institution: existing.institution,
+            reference: existing.reference,
+            status: existing.status,
+            priority: existing.priority == 'High' || item.priority == 'High' ? 'High' : 'Routine',
+            reason: '${existing.reason}; ${item.reason}',
+            relatedSubmissionId: existing.relatedSubmissionId,
+            category: '${existing.category}, ${item.category}',
+            dueDate: existing.dueDate ?? item.dueDate,
+            relatedCaseId: item.relatedCaseId ?? existing.relatedCaseId,
+          );
+  }
   final result = unique.values.toList();
   result.sort((left, right) {
     final priority = {'High': 0, 'Routine': 1};
     return (priority[left.priority] ?? 2).compareTo(
       priority[right.priority] ?? 2,
-    );
+    ) != 0
+        ? (priority[left.priority] ?? 2).compareTo(priority[right.priority] ?? 2)
+        : (left.dueDate ?? DateTime(9999)).compareTo(right.dueDate ?? DateTime(9999));
   });
   return List.unmodifiable(result);
 }
 
 String buildSubmissionsCsv(Iterable<FdrSubmission> submissions) {
-  String escape(String value) => '"${value.replaceAll('"', '""')}"';
+  String escape(String value) {
+    final trimmed = value.trimLeft();
+    final neutralized = trimmed.isNotEmpty && '=+-@'.contains(trimmed[0])
+        ? "'$value"
+        : value;
+    return '"${neutralized.replaceAll('"', '""')}"';
+  }
   final rows = <String>[
     'Submission ID,Institution ID,Institution,FDR Reference,Case Type,Status,Amount,Submitted,Issues,Maturity Date',
   ];
@@ -5611,8 +7012,92 @@ String buildSubmissionsCsv(Iterable<FdrSubmission> submissions) {
   return rows.join('\r\n');
 }
 
+Future<void> exportCsvReport(
+  BuildContext context,
+  String fileName,
+  String csv,
+) async {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text('CSV report copied: $fileName')),
+  );
+  try {
+    final directory = await getTemporaryDirectory();
+    final path = '${directory.path}/$fileName';
+    await writeCsvFile(path, csv);
+    await SharePlus.instance.share(
+      ShareParams(files: [XFile(path)], subject: fileName),
+    );
+    DemoFdrPortalStore.instance.appendAuditEntry(
+      action: 'CSV report exported',
+      associatedId: fileName,
+      actorRole: 'Officer',
+      payload: '${csv.length} bytes; ${directory.path}',
+    );
+  } on Object {
+    await Clipboard.setData(ClipboardData(text: csv));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Export unavailable; CSV copied to clipboard.')),
+      );
+    }
+  }
+}
+
+Future<String> writeCsvFile(String path, String csv) async {
+  await XFile.fromData(
+    utf8.encode(csv),
+    name: path.split(RegExp(r'[/\\]')).last,
+    mimeType: 'text/csv',
+  ).saveTo(path);
+  return path;
+}
+
 String? checksumForDocumentBytes(List<int>? bytes) =>
     bytes == null ? null : sha256.convert(bytes).toString();
+
+String buildInstitutionsCsv(
+  Map<String, InstitutionRiskAssessment> risks,
+) => [
+  'Institution,Risk Category,Risk Score,Reasons',
+  for (final entry in risks.entries)
+    [entry.key, entry.value.category, '${entry.value.score}', entry.value.reasons.join('; ')].map(_csvCell).join(','),
+].join('\r\n');
+
+String buildDeadlinesCsv(Iterable<FdrDeadlineInfo> deadlines) => [
+  'FDR,Institution,Bucket,Days Remaining,Maturity Date,Renewed',
+  for (final item in deadlines)
+    [
+      item.submission.reference,
+      item.submission.institution,
+      item.status.label,
+      '${item.daysRemaining ?? ''}',
+      item.maturityDate?.toIso8601String() ?? '',
+      '${item.isRenewed}',
+    ].map(_csvCell).join(','),
+].join('\r\n');
+
+String buildAuditCsv(Iterable<AuditEntry> entries) => [
+  'Event ID,Timestamp,Actor,Action,Associated ID,Payload,Previous Hash,Entry Hash',
+  for (final entry in entries)
+    [entry.eventId, entry.timestamp, entry.actorRole, entry.action, entry.associatedId, entry.payload, entry.previousHash, entry.entryHash]
+        .map(_csvCell)
+        .join(','),
+].join('\r\n');
+
+String buildDiscrepanciesCsv(Iterable<FdrSubmission> submissions) => [
+  'Submission ID,Institution,FDR,Issue',
+  for (final submission in submissions)
+    for (final issue in submission.issues)
+      [submission.submissionId, submission.institution, submission.reference, issue]
+          .map(_csvCell)
+          .join(','),
+].join('\r\n');
+
+String _csvCell(String value) {
+  final trimmed = value.trimLeft();
+  final safe = trimmed.isNotEmpty && '=+-@'.contains(trimmed[0]) ? "'$value" : value;
+  return '"${safe.replaceAll('"', '""')}"';
+}
 
 class ReleaseCase {
   const ReleaseCase({
@@ -5744,6 +7229,7 @@ String _caseStatusLabel(CaseStatus status) => switch (status) {
   CaseStatus.approved => 'Approved',
 };
 
+// ignore: constant_identifier_names
 const Map<CaseStatus, Set<CaseStatus>> ALLOWED_TRANSITIONS = {
   CaseStatus.draft: {CaseStatus.submitted, CaseStatus.rejected},
   CaseStatus.submitted: {
@@ -5755,6 +7241,7 @@ const Map<CaseStatus, Set<CaseStatus>> ALLOWED_TRANSITIONS = {
   CaseStatus.underReview: {
     CaseStatus.clarificationRequested,
     CaseStatus.clearancePending,
+    CaseStatus.approved,
     CaseStatus.rejected,
   },
   CaseStatus.clarificationRequested: {
@@ -5776,6 +7263,14 @@ const Map<CaseStatus, Set<CaseStatus>> ALLOWED_TRANSITIONS = {
   CaseStatus.rejected: {CaseStatus.submitted, CaseStatus.closed},
   CaseStatus.closed: <CaseStatus>{},
 };
+
+void validateCaseTransition(CaseStatus from, CaseStatus to) {
+  if (!(ALLOWED_TRANSITIONS[from] ?? const {}).contains(to)) {
+    throw InvalidTransitionException(
+      'Cannot transition ${_caseStatusLabel(from)} to ${_caseStatusLabel(to)}.',
+    );
+  }
+}
 
 class InvalidTransitionException implements Exception {
   InvalidTransitionException(this.message);
@@ -5928,21 +7423,64 @@ class AuditEntry {
   );
 }
 
+Map<String, dynamic> _auditToJson(AuditEntry entry) => {
+  'eventId': entry.eventId,
+  'timestamp': entry.timestamp,
+  'actorRole': entry.actorRole,
+  'action': entry.action,
+  'associatedId': entry.associatedId,
+  'payload': entry.payload,
+  'previousHash': entry.previousHash,
+  'entryHash': entry.entryHash,
+};
+
+AuditEntry _auditFromJson(Map<String, dynamic> json) => AuditEntry(
+  eventId: json['eventId'] as String,
+  timestamp: json['timestamp'] as String,
+  actorRole: json['actorRole'] as String,
+  action: json['action'] as String,
+  associatedId: json['associatedId'] as String,
+  payload: json['payload'] as String? ?? '',
+  previousHash: json['previousHash'] as String,
+  entryHash: json['entryHash'] as String,
+);
+
 class AuditIntegrityResult {
   const AuditIntegrityResult({
     required this.isValid,
     required this.invalidEntryId,
     required this.message,
+    this.invalidIndex,
+    this.reason,
   });
 
   final bool isValid;
   final String? invalidEntryId;
   final String message;
+  final int? invalidIndex;
+  final String? reason;
 }
 
-AuditIntegrityResult verifyAuditChain(Iterable<AuditEntry> entries) {
+class AuditChainAnchor {
+  const AuditChainAnchor({
+    required this.latestIndex,
+    required this.latestHash,
+    required this.count,
+  });
+
+  final int latestIndex;
+  final String latestHash;
+  final int count;
+}
+
+AuditIntegrityResult verifyAuditChain(
+  Iterable<AuditEntry> entries, {
+  AuditChainAnchor? anchor,
+}) {
   String previousHash = 'GENESIS';
-  for (final entry in entries) {
+  final records = entries.toList(growable: false);
+  for (var index = 0; index < records.length; index++) {
+    final entry = records[index];
     final canonical = jsonEncode({
       'eventId': entry.eventId,
       'timestamp': entry.timestamp,
@@ -5957,11 +7495,28 @@ AuditIntegrityResult verifyAuditChain(Iterable<AuditEntry> entries) {
       return AuditIntegrityResult(
         isValid: false,
         invalidEntryId: entry.eventId,
+        invalidIndex: index,
+        reason: entry.previousHash != previousHash
+          ? 'broken previous-hash link'
+          : 'hash mismatch',
         message:
             'Tampering detected at audit entry ${entry.eventId}. The stored hash does not match the recalculated hash.',
       );
     }
     previousHash = expectedHash;
+  }
+  if (anchor != null &&
+      (records.length != anchor.count ||
+          (records.isNotEmpty &&
+              (anchor.latestIndex != records.length - 1 ||
+                  anchor.latestHash != records.last.entryHash)))) {
+    return AuditIntegrityResult(
+      isValid: false,
+      invalidEntryId: records.isEmpty ? null : records.last.eventId,
+      invalidIndex: records.length,
+      reason: records.length < anchor.count ? 'truncation' : 'anchor mismatch',
+      message: 'Audit chain does not match its persisted anchor.',
+    );
   }
   return const AuditIntegrityResult(
     isValid: true,
@@ -6164,6 +7719,41 @@ class FdrVerificationService {
       );
     }
 
+    final institutionValues = comparisonMatrix
+        .where((item) => item.field == 'institutionName')
+        .firstOrNull;
+    final institutionThreshold =
+        configuredRules['institution-name-mismatch']?.params['threshold'] ?? 0.8;
+    final institutionNames = institutionValues?.values.values
+        .whereType<String>()
+        .where((value) => value.trim().isNotEmpty)
+        .toList();
+    if (enabled('institution-name-mismatch') &&
+        record.sourceValues.isNotEmpty &&
+        institutionNames != null &&
+        institutionNames.any(
+          (name) => _similarity(record.institution, name) < institutionThreshold,
+        ) &&
+        !issues.any((issue) => issue.ruleId == 'institution-name-mismatch')) {
+      issues.add(
+        VerificationIssue(
+          ruleId: 'institution-name-mismatch',
+          severity: severityFor(
+            'institution-name-mismatch',
+            VerificationIssueSeverity.blocking,
+          ),
+          message: 'The institution name differs across supporting sources.',
+          recommendedAction: 'Correct the institution name or supporting document.',
+          affectedField: 'institutionName',
+          sourceValues: {
+            for (final entry in institutionValues!.values.entries)
+              entry.key.name: entry.value ?? '',
+          },
+          detectedAt: now,
+        ),
+      );
+    }
+
     final trustValues = record.sourceValues.isEmpty
       ? null
       : comparisonMatrix.where((item) => item.field == 'trustName').firstOrNull;
@@ -6176,7 +7766,9 @@ class FdrVerificationService {
     if (enabled('trust-name-mismatch') &&
         trustNames != null &&
         trustNames.length > 1 &&
-        _similarity(trustNames.first, trustNames.last) < trustThreshold) {
+        trustNames.skip(1).any(
+          (name) => _similarity(trustNames.first, name) < trustThreshold,
+        )) {
       issues.add(
         VerificationIssue(
           ruleId: 'trust-name-mismatch',
@@ -6315,7 +7907,8 @@ class FdrVerificationService {
         diagonal = above;
       }
     }
-    return 1 - distance[b.length] / a.length.clamp(b.length, a.length);
+    final longestLength = a.length > b.length ? a.length : b.length;
+    return 1 - distance[b.length] / longestLength;
   }
 }
 
@@ -6660,6 +8253,13 @@ class _FdrVerificationDetailPageState
         children: [
           const _DemoNotice(),
           const SizedBox(height: 14),
+          if (record.isDeliberateInvalidDate)
+            const _InlineNotice(
+              message: 'Deliberately invalid-date example',
+              color: Color(0xFFFFF7ED),
+              textColor: Color(0xFF9A3412),
+              icon: Icons.event_busy_outlined,
+            ),
           _SectionCard(
             title: 'Institution Details',
             rows: {
@@ -6685,6 +8285,21 @@ class _FdrVerificationDetailPageState
               'Submission status': record.submissionStatus,
             },
           ),
+          if (store.renewalLineage(record.fdrNumber).length > 1 ||
+              record.parentFdrReference != null)
+            OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  builder: (_) => const _RenewalLineagePage(),
+                ),
+              ),
+              icon: const Icon(Icons.account_tree_outlined),
+              label: Text(
+                record.parentFdrReference == null
+                    ? 'View renewal lineage'
+                    : 'Renewed from ${record.parentFdrReference}',
+              ),
+            ),
           if (submission != null &&
               submission.caseType != 'FDR Submission') ...[
             const SizedBox(height: 12),
@@ -7235,10 +8850,12 @@ class _CorrectDetailsPageState extends State<_CorrectDetailsPage> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
+    final current = DemoFdrPortalStore.instance.currentSubmission;
     final correctedRecord = DemoFdrPortalStore.instance.currentSubmission
         .copyWith(
           fdrNumber: _fdrNumberController.text.trim(),
           declaredDepositAmount: int.parse(_amountController.text.trim()),
+              receiptAmount: current.receiptAmount,
           issueDate: _issueDateController.text.trim(),
           maturityDate: _maturityDateController.text.trim(),
           declaredTenureMonths: int.parse(_tenureController.text.trim()),
@@ -7247,7 +8864,6 @@ class _CorrectDetailsPageState extends State<_CorrectDetailsPage> {
               ? 'Not provided'
               : _lienController.text.trim(),
         );
-
     DemoFdrPortalStore.instance.setCurrentSubmission(correctedRecord);
     DemoFdrPortalStore.instance.appendAuditEntry(
       action: 'FDR details corrected',
@@ -8878,29 +10494,35 @@ class _AuditTrailPageState extends State<_AuditTrailPage> {
   String _verificationMessage = 'Integrity check not requested.';
 
   AuditIntegrityResult _verifyChain() {
-    return verifyAuditChain(DemoFdrPortalStore.instance.auditEntries);
+    final store = DemoFdrPortalStore.instance;
+    return store.auditIntegrity ?? verifyAuditChain(store.auditEntries);
   }
 
-  void _simulateTampering() {
-    if (DemoFdrPortalStore.instance.auditEntries.length < 2) return;
-    final tamperedIndex = 1;
-    final current = DemoFdrPortalStore.instance.auditEntries[tamperedIndex];
-    DemoFdrPortalStore.instance._auditEntries[tamperedIndex] = current.copyWith(
-      entryHash: 'TAMPERED-${current.eventId}',
-    );
+  Future<void> _tamperStoredRecord() async {
+    await DemoFdrPortalStore.instance.tamperPersistedAuditRecord();
     final result = _verifyChain();
     setState(() => _verificationMessage = result.message);
   }
 
-  void _resetDemoData() {
-    DemoFdrPortalStore.instance.resetDemoData();
-    setState(() => _verificationMessage = 'Demo data reset. Chain restored.');
+  Future<void> _restoreBackup() async {
+    await DemoFdrPortalStore.instance.restoreAuditBackup();
+    final result = _verifyChain();
+    setState(() => _verificationMessage = result.message);
   }
 
   @override
   Widget build(BuildContext context) {
     final entries = DemoFdrPortalStore.instance.auditEntries;
     final integrity = _verifyChain();
+    final claims = portalAuthService.currentClaims;
+    if (claims != null && claims.role != AuthRole.officer) {
+      return OfficerPortalShell(
+        title: 'Audit Trail',
+        body: const Center(
+          child: Text('Audit Trail is available to officers only.'),
+        ),
+      );
+    }
 
     return OfficerPortalShell(
       title: 'Audit Trail',
@@ -8909,6 +10531,13 @@ class _AuditTrailPageState extends State<_AuditTrailPage> {
         children: [
           const _DemoNotice(),
           const SizedBox(height: 12),
+          if (!integrity.isValid)
+            const _InlineNotice(
+              message: 'Audit integrity is broken. Review the first invalid index and reason below.',
+              color: Color(0xFFFEE2E2),
+              textColor: Color(0xFF991B1B),
+              icon: Icons.warning_amber_rounded,
+            ),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -8953,6 +10582,11 @@ class _AuditTrailPageState extends State<_AuditTrailPage> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                if (!integrity.isValid)
+                  Text(
+                    'First invalid index: ${integrity.invalidIndex ?? 'unknown'} · ${integrity.reason ?? 'unknown reason'}',
+                    style: const TextStyle(color: Color(0xFFB91C1C), fontSize: 11),
+                  ),
                 const SizedBox(height: 12),
                 Row(
                   children: [
@@ -8969,18 +10603,18 @@ class _AuditTrailPageState extends State<_AuditTrailPage> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _simulateTampering,
+                        onPressed: _tamperStoredRecord,
                         icon: const Icon(Icons.warning_amber_rounded),
-                        label: const Text('Simulate Tampering'),
+                        label: const Text('Tamper stored record'),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
-                  onPressed: _resetDemoData,
-                  icon: const Icon(Icons.restart_alt_rounded),
-                  label: const Text('Reset Demo Data'),
+                  onPressed: _restoreBackup,
+                  icon: const Icon(Icons.restore_rounded),
+                  label: const Text('Restore from backup'),
                   style: OutlinedButton.styleFrom(foregroundColor: _deepOrange),
                 ),
               ],
@@ -9207,63 +10841,6 @@ class _IssueCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class _ComparisonColumn extends StatelessWidget {
-  const _ComparisonColumn({required this.title, required this.entries});
-
-  final String title;
-  final List<(String, String)> entries;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: const Color(0xFFFFFBF7),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: _line),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            color: _ink,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 8),
-        for (final entry in entries)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: 100,
-                  child: Text(
-                    entry.$1,
-                    style: const TextStyle(color: _muted, fontSize: 10),
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    entry.$2,
-                    style: const TextStyle(
-                      color: _ink,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    ),
-  );
 }
 
 class _DocumentListItem extends StatelessWidget {

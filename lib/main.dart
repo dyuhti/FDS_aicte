@@ -2,8 +2,19 @@ import 'package:flutter/material.dart';
 
 import 'institution_dashboard.dart';
 import 'officer_dashboard.dart';
+import 'portal_foundations.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final storage = await SharedPreferencesLocalStorage.create();
+  await DemoFdrPortalStore.instance.initializeReminderPersistence(storage);
+  await DemoFdrPortalStore.instance.initializeAuditPersistence(storage);
+  await DemoFdrPortalStore.instance.initializeDocumentPersistence(storage);
+  if (await storage.read('aicte.seedInitialized') != 'true') {
+    DemoFdrPortalStore.instance.resetDemoData();
+    await storage.write('aicte.seedInitialized', 'true');
+  }
+  DemoFdrPortalStore.instance.seedDemoCases();
   runApp(const AictePortalApp());
 }
 
@@ -68,6 +79,17 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
     await Future<void>.delayed(const Duration(milliseconds: 650));
     if (!mounted) return;
+    final authenticated = await portalAuthService.authenticate(
+      _userIdController.text.trim(),
+      _passwordController.text,
+    );
+    if (!authenticated) {
+      setState(() {
+        _isLoading = false;
+        _authenticationError = 'The supplied credentials could not be verified.';
+      });
+      return;
+    }
     setState(() {
       _isLoading = false;
       _isSignedIn = true;

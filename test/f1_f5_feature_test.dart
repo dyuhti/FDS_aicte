@@ -164,6 +164,80 @@ void main() {
     },
   );
 
+  test('F6 reset creates the complete clock-relative presentation scenario', () {
+    final store = DemoFdrPortalStore.instance;
+    final deadlines = store.deadlineItems;
+    final byId = {
+      for (final deadline in deadlines)
+        deadline.submission.submissionId: deadline,
+    };
+
+    expect(byId['FDR-2026-00124']?.status, MaturityStatus.critical);
+    expect(byId['FDR-2026-00124']?.daysRemaining, 6);
+    expect(byId['FDR-2026-00128']?.status, MaturityStatus.matured);
+    expect(byId['FDR-2026-00126']?.status, MaturityStatus.expiringSoon);
+    expect(byId['FDR-2026-00125']?.status, MaturityStatus.active);
+    expect(
+      StoreReportsRepository(store).actionQueue.any(
+        (item) => item.relatedSubmissionId == 'FDR-2026-00124' &&
+            item.category.contains('Deadlines'),
+      ),
+      isTrue,
+    );
+    expect(
+      deadlines.where((item) => item.status == MaturityStatus.invalid),
+      hasLength(1),
+    );
+
+    final invalidRecord = store.fdrRecordForSubmission('FDR-2026-00129');
+    expect(invalidRecord?.isDeliberateInvalidDate, isTrue);
+    expect(store.renewalLineage('FDR-EIT-771530'), hasLength(2));
+    expect(
+      store.fdrRecordForSubmission('FDR-2026-00125')!.institutionId,
+      isNot(store.fdrRecordForSubmission('FDR-2026-00124')!.institutionId),
+    );
+    expect(store.auditEntries, hasLength(greaterThanOrEqualTo(20)));
+    expect(verifyAuditChain(store.auditEntries).isValid, isTrue);
+
+    final amountMismatch = FdrVerificationService.runVerification(
+      store.fdrRecordForSubmission('FDR-2026-00124')!,
+    );
+    expect(
+      amountMismatch.issues.map((issue) => issue.ruleId),
+      contains('deposit-amount'),
+    );
+    final trustWarning = FdrVerificationService.runVerification(
+      store.fdrRecordForSubmission('FDR-2026-00126')!,
+    );
+    expect(
+      trustWarning.issues.map((issue) => issue.ruleId),
+      containsAll(['trust-name-mismatch', 'lien-information']),
+    );
+    expect(
+      trustWarning.issues
+          .where((issue) => issue.ruleId == 'trust-name-mismatch')
+          .single
+          .severity,
+      VerificationIssueSeverity.warning,
+    );
+    expect(
+      FdrVerificationService.runVerification(
+        store.fdrRecordForSubmission('FDR-2026-00127')!,
+      ).blocking,
+      0,
+    );
+    store.seedDemoCases();
+    expect(
+      store.releaseCases.map((item) => item.caseType),
+      containsAll(['Normal Release', 'Progressive Closure', 'Merger']),
+    );
+    expect(store.releaseCases.map((item) => item.status).toSet().length, 3);
+    final normal = store.releaseCases.firstWhere(
+      (item) => item.caseType == 'Normal Release',
+    );
+    expect(normal.clearances.map((item) => item.status).toSet().length, 2);
+  });
+
   test('F5 builds unique prioritized queue, risk reasons and escaped CSV', () {
     final store = DemoFdrPortalStore.instance;
     final queue = buildOfficerActionQueue(store, today: DateTime(2026, 10, 25));

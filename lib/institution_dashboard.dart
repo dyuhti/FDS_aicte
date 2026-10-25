@@ -594,6 +594,10 @@ class _InstitutionHome extends StatelessWidget {
             icon: Icons.account_balance_wallet_outlined,
             onTap: onReleaseRequest,
           ),
+          const SizedBox(height: 22),
+          const _SectionHeading(title: 'Deadline Command Center'),
+          const SizedBox(height: 8),
+          const _InstitutionDeadlineCenter(),
           if (attention.isNotEmpty) ...[
             const SizedBox(height: 22),
             const _SectionHeading(title: 'Items Requiring Attention'),
@@ -631,6 +635,102 @@ class _InstitutionHome extends StatelessWidget {
       ),
     );
   }
+}
+
+class _InstitutionDeadlineCenter extends StatelessWidget {
+  const _InstitutionDeadlineCenter();
+
+  @override
+  Widget build(BuildContext context) {
+    final store = InstitutionDemoStore.instance;
+    final deadlines = calculateFdrDeadlines(
+      store._store.dashboardSubmissions.where(
+        (submission) => submission.institutionId == _institutionId,
+      ),
+    );
+    return Column(
+      children: [
+        for (final item in deadlines)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(
+              item.status == MaturityStatus.matured || item.status == MaturityStatus.critical
+                  ? Icons.warning_amber_rounded
+                  : Icons.event_outlined,
+              color: item.status == MaturityStatus.active
+                  ? const Color(0xFF15803D)
+                  : const Color(0xFFB45309),
+            ),
+            title: Text('${item.submission.reference} · ${item.status.label}'),
+            subtitle: Text(item.isRenewed ? 'Renewed parent FDR' : item.nextAction),
+            trailing: item.status == MaturityStatus.active || item.isRenewed
+                ? null
+                : TextButton(
+                    onPressed: () => _showInstitutionRenewalDialog(
+                      context,
+                      item.submission.submissionId,
+                    ),
+                    child: const Text('Renew'),
+                  ),
+          ),
+      ],
+    );
+  }
+}
+
+Future<void> _showInstitutionRenewalDialog(
+  BuildContext context,
+  String submissionId,
+) async {
+  final store = DemoFdrPortalStore.instance;
+  final record = store.fdrRecordForSubmission(submissionId);
+  if (record == null) return;
+  final number = TextEditingController();
+  final amount = TextEditingController(text: '${record.declaredDepositAmount}');
+  final tenure = TextEditingController(text: '${record.declaredTenureMonths}');
+  final issue = TextEditingController(text: record.maturityDate);
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Renew FDR'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(controller: number, decoration: const InputDecoration(labelText: 'New FDR number')),
+          TextField(controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Amount')),
+          TextField(controller: issue, decoration: const InputDecoration(labelText: 'Issue date')),
+          TextField(controller: tenure, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Tenure months')),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () {
+            try {
+              store.createRenewal(
+                parentFdrReference: record.fdrNumber,
+                newFdrNumber: number.text.trim(),
+                bank: record.bank,
+                amount: int.parse(amount.text.trim()),
+                issueDate: issue.text.trim(),
+                tenureMonths: int.parse(tenure.text.trim()),
+              );
+              Navigator.pop(dialogContext);
+            } on Object catch (error) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(error.toString())),
+              );
+            }
+          },
+          child: const Text('Create renewal'),
+        ),
+      ],
+    ),
+  );
+  number.dispose();
+  amount.dispose();
+  tenure.dispose();
+  issue.dispose();
 }
 
 class _InstitutionSubmissionList extends StatelessWidget {
