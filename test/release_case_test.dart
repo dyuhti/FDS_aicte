@@ -100,6 +100,105 @@ void main() {
     });
   });
 
+  group('ReleaseEligibilityService', () {
+    test('validates progressive release amount and retained balance', () {
+      final store = DemoFdrPortalStore.instance;
+      store.resetDemoData();
+      store.createReleaseCase();
+      store.updateReleaseCaseType('Progressive Closure');
+      final progressiveCase = store.releaseCase!;
+
+      expect(progressiveCase.caseId, 'PCL-2026-00008');
+      expect(progressiveCase.retainedBalance, 350000);
+      final eligible = ReleaseEligibilityService.evaluate(
+        record: progressiveCase.copyWith(clearances: _clearedCells),
+        verification: _passedVerification,
+      );
+      expect(eligible.canAdvance, isTrue);
+
+      final invalid = ReleaseEligibilityService.evaluate(
+        record: progressiveCase.copyWith(
+          requestedReleaseAmount: 600000,
+          clearances: _clearedCells,
+        ),
+        verification: _passedVerification,
+      );
+      expect(invalid.canAdvance, isFalse);
+      expect(invalid.blockingReasons.join(' '), contains('original FDR amount'));
+      expect(invalid.blockingReasons.join(' '), contains('available balance'));
+      expect(invalid.blockingReasons.join(' '), contains('negative'));
+    });
+
+    test('requires merger details, supporting documents, and independent clearances', () {
+      final store = DemoFdrPortalStore.instance;
+      store.resetDemoData();
+      store.createReleaseCase();
+      store.updateReleaseCaseType('Merger');
+      final mergerCase = store.releaseCase!;
+      expect(mergerCase.caseId, 'MRG-2026-00004');
+
+      final missingDocument = mergerCase.checklist.first.copyWith(
+        isPresent: false,
+        status: 'Missing — Demo',
+      );
+      final blocked = ReleaseEligibilityService.evaluate(
+        record: mergerCase.copyWith(
+          successorInstitution: '',
+          mergerReference: '',
+          effectiveDate: '',
+          checklist: [missingDocument, ...mergerCase.checklist.skip(1)],
+        ),
+        verification: _passedVerification,
+      );
+      expect(blocked.canAdvance, isFalse);
+      expect(blocked.missingDocuments, contains(missingDocument.name));
+      expect(blocked.pendingClearances, contains('Grievance Redressal Cell'));
+      expect(blocked.blockingReasons.join(' '), contains('Successor institution'));
+      expect(blocked.blockingReasons.join(' '), contains('Merger reference'));
+      expect(blocked.blockingReasons.join(' '), contains('Effective date'));
+
+      final missingFdr = ReleaseEligibilityService.evaluate(
+        record: mergerCase.copyWith(clearances: _clearedCells),
+        verification: _passedVerification,
+        originalFdrExists: false,
+      );
+      expect(missingFdr.blockingReasons, contains('The original FDR record could not be verified.'));
+    });
+
+    test('keeps each case type state separate while switching', () {
+      final store = DemoFdrPortalStore.instance;
+      store.resetDemoData();
+      store.createReleaseCase();
+      store.updateReleaseCaseType('Progressive Closure');
+      store.updateProgressiveClosure(requestedAmount: 225000, reason: 'Updated staged need');
+      store.updateReleaseCaseType('Merger');
+      store.updateMergerDetails(successorInstitution: 'Successor Demo University');
+      expect(store.releaseCase!.caseType, 'Merger');
+      expect(store.releaseCase!.successorInstitution, 'Successor Demo University');
+
+      store.updateReleaseCaseType('Progressive Closure');
+      expect(store.releaseCase!.requestedReleaseAmount, 225000);
+      expect(store.releaseCase!.partialReleaseReason, 'Updated staged need');
+    });
+
+    test('merger demo approval records a relationship without changing the FDR master', () {
+      final store = DemoFdrPortalStore.instance;
+      store.resetDemoData();
+      store.createReleaseCase();
+      store.updateReleaseCaseType('Merger');
+      final original = store.demoFdrRecords['FDR-MRG-330812']!;
+      store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared', remark: 'Demo review complete');
+      store.updateClearanceStatus('Vigilance Cell', 'Cleared', remark: 'Demo review complete');
+
+      store.approveMergerInDemoMode();
+
+      expect(store.releaseCase!.status, 'Merger Approved — Demo');
+      expect(store.mergerRelationships['FDR-MRG-330812'], 'Example Technical University');
+      expect(store.demoFdrRecords['FDR-MRG-330812']!.amount, original.amount);
+      expect(store.demoFdrRecords['FDR-MRG-330812']!.institution, original.institution);
+    });
+  });
+
   testWidgets('blocked verification can open the gated release case', (tester) async {
     DemoFdrPortalStore.instance.resetDemoData();
     await tester.pumpWidget(const AictePortalApp());
@@ -131,6 +230,24 @@ void main() {
     expect(find.text('Release / Refund Case'), findsOneWidget);
     expect(find.text('Case Summary'), findsOneWidget);
     expect(find.text('Required Documents'), findsWidgets);
+
+    final caseTypeDropdown = find.byType(DropdownButtonFormField<String>);
+    await tester.ensureVisible(caseTypeDropdown);
+    await tester.tap(caseTypeDropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Progressive Closure').last);
+    await tester.pumpAndSettle();
+    expect(find.text('PCL-2026-00008'), findsOneWidget);
+    expect(find.text('Partial Release Request'), findsWidgets);
+
+    await tester.ensureVisible(caseTypeDropdown);
+    await tester.tap(caseTypeDropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Merger').last);
+    await tester.pumpAndSettle();
+    expect(DemoFdrPortalStore.instance.selectedCaseType, 'Merger');
+    expect(find.text('Merger').first, findsOneWidget);
+    expect(find.text('Successor institution'), findsWidgets);
   });
 
   test('shared audit chain verifies appended demo events', () {

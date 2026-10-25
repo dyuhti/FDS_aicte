@@ -781,12 +781,23 @@ class DemoFdrPortalStore {
     ],
   );
 
-  ReleaseCase? _releaseCase;
+  final Map<String, DemoFdrMasterRecord> _demoFdrRecords = const {
+    'FDR-EX-884201': DemoFdrMasterRecord(institution: 'Example Institute of Technology', institutionId: 'INST-00042', fdrReference: 'FDR-EX-884201', amount: 500000),
+    'FDR-PCL-552901': DemoFdrMasterRecord(institution: 'Example Institute of Technology', institutionId: 'INST-DEMO-0042', fdrReference: 'FDR-PCL-552901', amount: 500000),
+    'FDR-MRG-330812': DemoFdrMasterRecord(institution: 'Example Institute of Technology', institutionId: 'INST-DEMO-0042', fdrReference: 'FDR-MRG-330812', amount: 500000),
+  };
+  final Map<String, ReleaseCase> _releaseCases = <String, ReleaseCase>{};
+  final Map<String, String> _mergerRelationships = <String, String>{};
+  String _selectedCaseType = 'Normal Release';
   final List<AuditEntry> _auditEntries = <AuditEntry>[];
 
   FdrRecord get currentSubmission => _currentSubmission;
   VerificationSummary get lastVerification => _lastVerification;
-  ReleaseCase? get releaseCase => _releaseCase;
+  ReleaseCase? get releaseCase => _releaseCases[_selectedCaseType];
+  String get selectedCaseType => _selectedCaseType;
+  FdrRecord get originalFdrRecord => _currentSubmission;
+  Map<String, DemoFdrMasterRecord> get demoFdrRecords => Map.unmodifiable(_demoFdrRecords);
+  Map<String, String> get mergerRelationships => Map.unmodifiable(_mergerRelationships);
   List<AuditEntry> get auditEntries => List.unmodifiable(_auditEntries);
 
   void resetDemoData() {
@@ -834,7 +845,9 @@ class DemoFdrPortalStore {
         ),
       ],
     );
-    _releaseCase = null;
+    _releaseCases.clear();
+    _mergerRelationships.clear();
+    _selectedCaseType = 'Normal Release';
     _auditEntries.clear();
     _seedAudit();
   }
@@ -931,9 +944,9 @@ class DemoFdrPortalStore {
   }
 
   void createReleaseCase() {
-    final caseId = 'REL-2026-00017';
-    _releaseCase = ReleaseCase(
-      caseId: caseId,
+    _selectedCaseType = 'Normal Release';
+    _releaseCases.putIfAbsent('Normal Release', () => ReleaseCase(
+      caseId: 'REL-2026-00017',
       submissionId: _currentSubmission.submissionId,
       institution: _currentSubmission.institution,
       caseType: 'Normal Release',
@@ -947,11 +960,55 @@ class DemoFdrPortalStore {
         ClearanceState(name: 'Grievance Redressal Cell', status: 'Pending', remark: 'Not reviewed', actionRequired: 'Review grievances and confirm no objections.'),
         ClearanceState(name: 'Vigilance Cell', status: 'Pending', remark: 'Not reviewed', actionRequired: 'Inspect compliance and risk indicators.'),
       ],
-    );
+    ));
+    _releaseCases.putIfAbsent('Progressive Closure', () => ReleaseCase(
+      caseId: 'PCL-2026-00008',
+      submissionId: _currentSubmission.submissionId,
+      institution: 'Example Institute of Technology',
+      caseType: 'Progressive Closure',
+      status: 'Pending Review',
+      checklist: const [
+        DemoChecklistItem(name: 'Institution partial release request', fileName: 'pcl_request_letter.pdf', type: 'Signed request letter', status: 'Present — Demo'),
+        DemoChecklistItem(name: 'Updated FDR evidence', fileName: 'pcl_fdr_copy.pdf', type: 'FDR copy', status: 'Present — Demo'),
+        DemoChecklistItem(name: 'Partial release justification', fileName: 'pcl_justification.pdf', type: 'Supporting justification', status: 'Present — Demo'),
+      ],
+      clearances: _newDemoClearances(),
+      originalFdrAmount: 500000,
+      availableBalance: 500000,
+      requestedReleaseAmount: 150000,
+      partialReleaseReason: 'Staged institutional requirement',
+      originalFdrReference: 'FDR-PCL-552901',
+    ));
+    _releaseCases.putIfAbsent('Merger', () => ReleaseCase(
+      caseId: 'MRG-2026-00004',
+      submissionId: _currentSubmission.submissionId,
+      institution: 'Example Institute of Technology',
+      caseType: 'Merger',
+      status: 'Pending Review',
+      checklist: const [
+        DemoChecklistItem(name: 'Merger or amalgamation approval document', fileName: 'merger_approval.pdf', type: 'Merger approval', status: 'Present — Demo'),
+        DemoChecklistItem(name: 'Institution request letter', fileName: 'merger_request_letter.pdf', type: 'Institution request', status: 'Present — Demo'),
+        DemoChecklistItem(name: 'Original FDR copy', fileName: 'merger_original_fdr.pdf', type: 'Original FDR copy', status: 'Present — Demo'),
+        DemoChecklistItem(name: 'Supporting institution records', fileName: 'merger_institution_records.pdf', type: 'Institution records', status: 'Present — Demo'),
+      ],
+      clearances: _newDemoClearances(),
+      originalFdrAmount: 500000,
+      originalFdrReference: 'FDR-MRG-330812',
+      originalInstitutionId: 'INST-DEMO-0042',
+      successorInstitution: 'Example Technical University',
+      successorInstitutionId: 'INST-DEMO-0108',
+      mergerReference: 'MERGER-2026-0019',
+      effectiveDate: '01 November 2026',
+    ));
   }
 
+  static List<ClearanceState> _newDemoClearances() => const [
+    ClearanceState(name: 'Grievance Redressal Cell', status: 'Pending', remark: 'Not reviewed', actionRequired: 'Review grievances and confirm no objections.'),
+    ClearanceState(name: 'Vigilance Cell', status: 'Pending', remark: 'Not reviewed', actionRequired: 'Inspect compliance and risk indicators.'),
+  ];
+
   void updateClearanceStatus(String clearanceName, String newStatus, {String? remark}) {
-    final currentCase = _releaseCase;
+    final currentCase = releaseCase;
     if (currentCase == null) return;
     final index = currentCase.clearances.indexWhere((item) => item.name == clearanceName);
     if (index == -1) return;
@@ -962,28 +1019,88 @@ class DemoFdrPortalStore {
     );
     final clearances = [...currentCase.clearances];
     clearances[index] = updated;
-    _releaseCase = currentCase.copyWith(clearances: clearances);
+    _releaseCases[_selectedCaseType] = currentCase.copyWith(clearances: clearances);
   }
 
   void updateDocumentPresence(String fileName, bool isPresent) {
-    final currentCase = _releaseCase;
+    final currentCase = releaseCase;
     if (currentCase == null) return;
     final checklist = currentCase.checklist.map((item) => item.fileName == fileName
         ? item.copyWith(isPresent: isPresent, status: isPresent ? 'Present — Demo' : 'Missing — Demo')
         : item).toList();
-    _releaseCase = currentCase.copyWith(checklist: checklist);
+    _releaseCases[_selectedCaseType] = currentCase.copyWith(checklist: checklist);
   }
 
   void updateReleaseCaseType(String caseType) {
-    final currentCase = _releaseCase;
-    if (currentCase == null) return;
-    _releaseCase = currentCase.copyWith(caseType: caseType);
+    if (!_releaseCases.containsKey(caseType)) createReleaseCase();
+    _selectedCaseType = caseType;
   }
 
   void issueDemoNoc() {
-    final currentCase = _releaseCase;
+    final currentCase = releaseCase;
     if (currentCase == null) return;
-    _releaseCase = currentCase.copyWith(status: 'NOC Issued — Demo');
+    _releaseCases[_selectedCaseType] = currentCase.copyWith(status: 'NOC Issued — Demo');
+  }
+
+  void updateProgressiveClosure({int? requestedAmount, String? reason}) {
+    final currentCase = releaseCase;
+    if (currentCase == null || currentCase.caseType != 'Progressive Closure') return;
+    _releaseCases[_selectedCaseType] = currentCase.copyWith(
+      requestedReleaseAmount: requestedAmount,
+      partialReleaseReason: reason,
+    );
+  }
+
+  void updateMergerDetails({String? successorInstitution, String? mergerReference, String? effectiveDate}) {
+    final currentCase = releaseCase;
+    if (currentCase == null || currentCase.caseType != 'Merger') return;
+    _releaseCases[_selectedCaseType] = currentCase.copyWith(
+      successorInstitution: successorInstitution,
+      mergerReference: mergerReference,
+      effectiveDate: effectiveDate,
+    );
+  }
+
+  void approveProgressiveClosureInDemoMode() {
+    final currentCase = releaseCase;
+    if (currentCase == null || currentCase.caseType != 'Progressive Closure') {
+      return;
+    }
+    if (!ReleaseEligibilityService.evaluate(
+      record: currentCase,
+      verification: const VerificationSummary(
+        totalChecks: 0,
+        blocking: 0,
+        warnings: 0,
+        statusText: 'Demo verification passed',
+        issues: [],
+      ),
+    ).canAdvance) {
+      return;
+    }
+    _releaseCases[_selectedCaseType] = currentCase.copyWith(status: 'Partial Release Approved — Demo');
+  }
+
+  void approveMergerInDemoMode() {
+    final currentCase = releaseCase;
+    if (currentCase == null || currentCase.caseType != 'Merger') {
+      return;
+    }
+    if (!ReleaseEligibilityService.evaluate(
+      record: currentCase,
+      verification: const VerificationSummary(
+        totalChecks: 0,
+        blocking: 0,
+        warnings: 0,
+        statusText: 'Demo verification passed',
+        issues: [],
+      ),
+      originalFdrExists: _demoFdrRecords.containsKey(currentCase.originalFdrReference),
+    ).canAdvance) {
+      return;
+    }
+    _mergerRelationships[currentCase.originalFdrReference] = currentCase.successorInstitution;
+    _releaseCases[_selectedCaseType] = currentCase.copyWith(status: 'Merger Approved — Demo');
   }
 
   static String _computeHash(String value) {
@@ -1071,6 +1188,20 @@ class DemoDocument {
   final String status;
 }
 
+class DemoFdrMasterRecord {
+  const DemoFdrMasterRecord({
+    required this.institution,
+    required this.institutionId,
+    required this.fdrReference,
+    required this.amount,
+  });
+
+  final String institution;
+  final String institutionId;
+  final String fdrReference;
+  final int amount;
+}
+
 class VerificationIssue {
   const VerificationIssue({
     required this.ruleId,
@@ -1110,6 +1241,16 @@ class ReleaseCase {
     required this.status,
     required this.checklist,
     required this.clearances,
+    this.originalFdrAmount = 0,
+    this.availableBalance = 0,
+    this.requestedReleaseAmount = 0,
+    this.partialReleaseReason = '',
+    this.originalFdrReference = '',
+    this.originalInstitutionId = '',
+    this.successorInstitution = '',
+    this.successorInstitutionId = '',
+    this.mergerReference = '',
+    this.effectiveDate = '',
   });
 
   final String caseId;
@@ -1119,6 +1260,17 @@ class ReleaseCase {
   final String status;
   final List<DemoChecklistItem> checklist;
   final List<ClearanceState> clearances;
+  final int originalFdrAmount;
+  final int availableBalance;
+  final int requestedReleaseAmount;
+  final String partialReleaseReason;
+  final String originalFdrReference;
+  final String originalInstitutionId;
+  final String successorInstitution;
+  final String successorInstitutionId;
+  final String mergerReference;
+  final String effectiveDate;
+  int get retainedBalance => originalFdrAmount - requestedReleaseAmount;
 
   ReleaseCase copyWith({
     String? caseId,
@@ -1128,6 +1280,16 @@ class ReleaseCase {
     String? status,
     List<DemoChecklistItem>? checklist,
     List<ClearanceState>? clearances,
+    int? originalFdrAmount,
+    int? availableBalance,
+    int? requestedReleaseAmount,
+    String? partialReleaseReason,
+    String? originalFdrReference,
+    String? originalInstitutionId,
+    String? successorInstitution,
+    String? successorInstitutionId,
+    String? mergerReference,
+    String? effectiveDate,
   }) => ReleaseCase(
     caseId: caseId ?? this.caseId,
     submissionId: submissionId ?? this.submissionId,
@@ -1136,6 +1298,16 @@ class ReleaseCase {
     status: status ?? this.status,
     checklist: checklist ?? this.checklist,
     clearances: clearances ?? this.clearances,
+    originalFdrAmount: originalFdrAmount ?? this.originalFdrAmount,
+    availableBalance: availableBalance ?? this.availableBalance,
+    requestedReleaseAmount: requestedReleaseAmount ?? this.requestedReleaseAmount,
+    partialReleaseReason: partialReleaseReason ?? this.partialReleaseReason,
+    originalFdrReference: originalFdrReference ?? this.originalFdrReference,
+    originalInstitutionId: originalInstitutionId ?? this.originalInstitutionId,
+    successorInstitution: successorInstitution ?? this.successorInstitution,
+    successorInstitutionId: successorInstitutionId ?? this.successorInstitutionId,
+    mergerReference: mergerReference ?? this.mergerReference,
+    effectiveDate: effectiveDate ?? this.effectiveDate,
   );
 }
 
@@ -1341,12 +1513,73 @@ class ReleaseEligibility {
     required this.blockingReasons,
     required this.warnings,
     required this.nextEligibleStage,
+    this.missingDocuments = const [],
+    this.pendingClearances = const [],
   });
 
   final bool canAdvance;
   final List<String> blockingReasons;
   final List<String> warnings;
   final String nextEligibleStage;
+  final List<String> missingDocuments;
+  final List<String> pendingClearances;
+}
+
+class ReleaseEligibilityService {
+  static ReleaseEligibility evaluate({
+    required ReleaseCase record,
+    required VerificationSummary verification,
+    bool originalFdrExists = true,
+  }) {
+    final blockers = <String>[];
+    final warnings = verification.issues
+        .where((issue) => issue.severity == VerificationIssueSeverity.warning)
+        .map((issue) => issue.message)
+        .toList();
+    if (verification.blocking > 0) blockers.add('Resolve all blocking FDR discrepancies before proceeding.');
+
+    final missingDocuments = record.checklist
+        .where((document) => document.isRequired && !document.isPresent)
+        .map((document) => document.name)
+        .toList();
+    final pendingClearances = record.clearances
+        .where((clearance) => clearance.status != 'Cleared')
+        .map((clearance) => clearance.name)
+        .toList();
+    if (missingDocuments.isNotEmpty) blockers.add('Required documents missing: ${missingDocuments.join(', ')}.');
+    if (pendingClearances.isNotEmpty) blockers.add('Every required cell clearance must be marked cleared.');
+
+    if (record.caseType == 'Progressive Closure') {
+      if (record.requestedReleaseAmount <= 0) blockers.add('Requested release amount must be greater than zero.');
+      if (record.requestedReleaseAmount > record.originalFdrAmount) blockers.add('Requested release amount cannot exceed the original FDR amount.');
+      if (record.requestedReleaseAmount > record.availableBalance) blockers.add('Requested release amount cannot exceed the currently available balance.');
+      if (record.retainedBalance < 0) blockers.add('Retained balance cannot be negative.');
+      if (record.partialReleaseReason.trim().isEmpty) blockers.add('A reason for partial release is required.');
+    } else if (record.caseType == 'Merger') {
+      if (!originalFdrExists || record.originalFdrReference.trim().isEmpty || record.originalFdrAmount <= 0) blockers.add('The original FDR record could not be verified.');
+      if (record.successorInstitution.trim().isEmpty) blockers.add('Successor institution is required.');
+      if (record.mergerReference.trim().isEmpty) blockers.add('Merger reference number is required.');
+      if (record.effectiveDate.trim().isEmpty) blockers.add('Effective date is required.');
+    }
+
+    final nextStage = verification.blocking > 0
+        ? record.caseType == 'Merger' ? 'Original FDR Verification' : 'FDR Verification'
+        : blockers.any((reason) => reason.contains('amount') || reason.contains('balance') || reason.contains('reason') || reason.contains('institution') || reason.contains('reference') || reason.contains('date'))
+        ? record.caseType == 'Progressive Closure' ? 'Partial Release Request' : record.caseType == 'Merger' ? 'Institution and Merger Details' : 'Required Documents'
+        : missingDocuments.isNotEmpty
+        ? 'Required Documents'
+        : pendingClearances.isNotEmpty
+        ? pendingClearances.first
+        : record.caseType == 'Progressive Closure' ? 'Final NOC' : record.caseType == 'Merger' ? 'Final Review and NOC' : 'Final NOC';
+    return ReleaseEligibility(
+      canAdvance: blockers.isEmpty,
+      blockingReasons: blockers,
+      warnings: warnings,
+      nextEligibleStage: nextStage,
+      missingDocuments: missingDocuments,
+      pendingClearances: pendingClearances,
+    );
+  }
 }
 
 ReleaseEligibility canAdvanceReleaseCase(
@@ -1445,11 +1678,22 @@ class MockReleaseCaseRepository implements ReleaseCaseRepository {
   void recordClearanceDecision(String cellName, String status, String remark) => store.updateClearanceStatus(cellName, status, remark: remark);
 
   @override
-  ReleaseEligibility checkReleaseEligibility(VerificationSummary verification) => canAdvanceReleaseCase(
-    verification,
-    retrieveRequiredDocumentChecklist(),
-    retrieveCellClearanceStatuses(),
-  );
+  ReleaseEligibility checkReleaseEligibility(VerificationSummary verification) {
+    final currentCase = retrieveReleaseCase();
+    if (currentCase == null) {
+      return const ReleaseEligibility(
+        canAdvance: false,
+        blockingReasons: ['Create a release case before checking eligibility.'],
+        warnings: [],
+        nextEligibleStage: 'Case Creation',
+      );
+    }
+    return ReleaseEligibilityService.evaluate(
+      record: currentCase,
+      verification: verification,
+      originalFdrExists: store.demoFdrRecords.containsKey(currentCase.originalFdrReference),
+    );
+  }
 
   @override
   void issueFinalNocInDemoMode() => store.issueDemoNoc();
@@ -1970,6 +2214,13 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
   static const _caseTypes = ['Normal Release', 'Progressive Closure', 'Merger'];
   final _store = DemoFdrPortalStore.instance;
   late final ReleaseCaseRepository _repository = MockReleaseCaseRepository(_store);
+  static const _caseVerificationPassed = VerificationSummary(
+    totalChecks: 1,
+    blocking: 0,
+    warnings: 0,
+    statusText: 'PASSED — Demo FDR record available',
+    issues: [],
+  );
 
   ReleaseCase get _case => _repository.retrieveReleaseCase()!;
 
@@ -1986,8 +2237,13 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
     }
   }
 
-  ReleaseEligibility _eligibility([ReleaseCase? record]) =>
-      _repository.checkReleaseEligibility(_store.lastVerification);
+  ReleaseEligibility _eligibility([ReleaseCase? record]) => ReleaseEligibilityService.evaluate(
+    record: record ?? _case,
+    verification: (record ?? _case).caseType == 'Normal Release'
+        ? _store.lastVerification
+        : _caseVerificationPassed,
+    originalFdrExists: _store.demoFdrRecords.containsKey((record ?? _case).originalFdrReference),
+  );
 
   void _recordEligibilityChange(ReleaseEligibility before) {
     final after = _eligibility();
@@ -2037,6 +2293,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
   }
 
   Future<void> _simulateNoc() async {
+    if (!_eligibility().canAdvance) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -2054,6 +2311,56 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
       action: 'Final NOC simulated',
       caseId: _case.caseId,
       payload: 'NOC Issued — Demo; no official release or fund transfer',
+    );
+    setState(() {});
+  }
+
+  Future<void> _simulateProgressiveApproval() async {
+    if (!_eligibility().canAdvance) return;
+    final current = _case;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Simulate partial release approval?'),
+        content: Text('Record a demo decision for ₹${_formatCurrency(current.requestedReleaseAmount)} and retain ₹${_formatCurrency(current.retainedBalance)}. No funds will be transferred and this is not an official approval.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Confirm demo action')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || !_eligibility().canAdvance) return;
+    _store.approveProgressiveClosureInDemoMode();
+    _store.appendAuditEntry(
+      action: 'Progressive closure approved in demo mode',
+      associatedId: current.caseId,
+      actorRole: 'Demo Officer',
+      payload: 'Approved amount ₹${current.requestedReleaseAmount}; retained balance ₹${current.retainedBalance}; no funds transferred',
+    );
+    setState(() {});
+  }
+
+  Future<void> _simulateMergerApproval() async {
+    if (!_eligibility().canAdvance) return;
+    final current = _case;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Simulate merger approval?'),
+        content: Text('Record a demo relationship from ${current.institution} (${current.originalInstitutionId}) to ${current.successorInstitution} (${current.successorInstitutionId}). This has no legal or official effect and does not transfer or modify the original FDR.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Confirm demo action')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || !_eligibility().canAdvance) return;
+    _store.approveMergerInDemoMode();
+    _store.appendAuditEntry(
+      action: 'Merger case approved in demo mode',
+      associatedId: current.caseId,
+      actorRole: 'Demo Officer',
+      payload: 'Relationship recorded: ${current.institution} (${current.originalInstitutionId}) -> ${current.successorInstitution} (${current.successorInstitutionId}); original FDR ${current.originalFdrReference} preserved',
     );
     setState(() {});
   }
@@ -2082,8 +2389,11 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
     final record = _case;
     final eligibility = _eligibility(record);
     final isNormalRelease = record.caseType == 'Normal Release';
-    final verificationBlocked = _store.lastVerification.blocking > 0;
+    final isProgressiveClosure = record.caseType == 'Progressive Closure';
+    final isMerger = record.caseType == 'Merger';
+    final verificationBlocked = (isNormalRelease ? _store.lastVerification : _caseVerificationPassed).blocking > 0;
     final nocIssued = record.status == 'NOC Issued — Demo';
+    final caseApproved = record.status.endsWith('Approved — Demo');
 
     return Scaffold(
       backgroundColor: _paper,
@@ -2111,8 +2421,20 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                       _MiniInfoRow(label: 'Case ID', value: record.caseId),
                       _MiniInfoRow(label: 'Submission ID', value: record.submissionId),
                       _MiniInfoRow(label: 'Institution', value: record.institution),
-                      _MiniInfoRow(label: 'FDR number', value: _store.currentSubmission.fdrNumber),
-                      _MiniInfoRow(label: 'Deposit amount', value: '₹${_formatCurrency(_store.currentSubmission.declaredDepositAmount)}'),
+                      if (isNormalRelease) ...[
+                        _MiniInfoRow(label: 'FDR number', value: _store.currentSubmission.fdrNumber),
+                        _MiniInfoRow(label: 'Deposit amount', value: '₹${_formatCurrency(_store.currentSubmission.declaredDepositAmount)}'),
+                      ] else if (isProgressiveClosure) ...[
+                        _MiniInfoRow(label: 'FDR reference', value: record.originalFdrReference),
+                        _MiniInfoRow(label: 'Original FDR amount', value: '₹${_formatCurrency(record.originalFdrAmount)}'),
+                        _MiniInfoRow(label: 'Requested release', value: '₹${_formatCurrency(record.requestedReleaseAmount)}'),
+                        _MiniInfoRow(label: 'Retained balance', value: '₹${_formatCurrency(record.retainedBalance)}'),
+                      ] else ...[
+                        _MiniInfoRow(label: 'Original FDR reference', value: record.originalFdrReference),
+                        _MiniInfoRow(label: 'Original FDR amount', value: '₹${_formatCurrency(record.originalFdrAmount)}'),
+                        _MiniInfoRow(label: 'Successor institution', value: record.successorInstitution),
+                        _MiniInfoRow(label: 'Merger reference', value: record.mergerReference),
+                      ],
                       _MiniInfoRow(label: 'Case status', value: record.status),
                     ],
                   ),
@@ -2124,25 +2446,17 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       DropdownButtonFormField<String>(
+                        key: ValueKey('case-type-${record.caseType}'),
                         initialValue: record.caseType,
                         decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
                         items: _caseTypes.map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
                         onChanged: (type) {
                           if (type == null || type == record.caseType) return;
                           _store.updateReleaseCaseType(type);
-                          _store.appendAuditEntry(action: 'Case type selected', associatedId: record.caseId, actorRole: 'Demo Officer', payload: type);
+                          _store.appendAuditEntry(action: 'Case type selected', associatedId: _store.releaseCase!.caseId, actorRole: 'Demo Officer', payload: type);
                           setState(() {});
                         },
                       ),
-                      if (!isNormalRelease) ...[
-                        const SizedBox(height: 10),
-                        const _InlineNotice(
-                          message: 'This workflow template is not implemented yet. Normal Release is the only supported demo workflow.',
-                          color: Color(0xFFFFF7ED),
-                          textColor: Color(0xFF9A3412),
-                          icon: Icons.info_outline_rounded,
-                        ),
-                      ],
                     ],
                   ),
                 ),
@@ -2150,10 +2464,16 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                 _ReleaseSection(
                   title: 'Workflow Progress',
                   child: _WorkflowProgress(
-                    verificationComplete: !verificationBlocked,
-                    documentsComplete: record.checklist.where((item) => item.isRequired).every((item) => item.isPresent),
-                    clearancesComplete: record.clearances.every((item) => item.status == 'Cleared'),
-                    nocIssued: nocIssued,
+                    stages: isNormalRelease
+                        ? const ['FDR Verification', 'Required Documents', 'Grievance Redressal Cell', 'Vigilance Cell', 'Final NOC']
+                        : isProgressiveClosure
+                        ? const ['FDR Verification', 'Partial Release Request', 'Required Documents', 'Grievance Redressal Cell', 'Vigilance Cell', 'Final NOC']
+                        : const ['Original FDR Verification', 'Institution and Merger Details', 'Required Documents', 'Grievance Redressal Cell', 'Vigilance Cell', 'Final Review and NOC'],
+                    completed: isNormalRelease
+                        ? [!verificationBlocked, record.checklist.where((item) => item.isRequired).every((item) => item.isPresent), record.clearances.first.status == 'Cleared', record.clearances.last.status == 'Cleared', nocIssued]
+                        : isProgressiveClosure
+                        ? [!verificationBlocked, record.requestedReleaseAmount > 0 && record.requestedReleaseAmount <= record.availableBalance && record.partialReleaseReason.trim().isNotEmpty, record.checklist.where((item) => item.isRequired).every((item) => item.isPresent), record.clearances.first.status == 'Cleared', record.clearances.last.status == 'Cleared', caseApproved]
+                        : [!verificationBlocked, record.successorInstitution.trim().isNotEmpty && record.mergerReference.trim().isNotEmpty && record.effectiveDate.trim().isNotEmpty, record.checklist.where((item) => item.isRequired).every((item) => item.isPresent), record.clearances.first.status == 'Cleared', record.clearances.last.status == 'Cleared', caseApproved],
                     nextStage: eligibility.nextEligibleStage,
                   ),
                 ),
@@ -2171,7 +2491,149 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                     ),
                   ),
                 ],
-                if (isNormalRelease) ...[
+                if (isProgressiveClosure) ...[
+                  const SizedBox(height: 12),
+                  _ReleaseSection(
+                    title: 'Partial Release Request',
+                    trailing: const _DemoPill(),
+                    child: Form(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        _MiniInfoRow(label: 'Original FDR amount', value: '₹${_formatCurrency(record.originalFdrAmount)}'),
+                        _MiniInfoRow(label: 'FDR reference', value: record.originalFdrReference),
+                        _MiniInfoRow(label: 'Currently available balance', value: '₹${_formatCurrency(record.availableBalance)}'),
+                        TextFormField(
+                          key: ValueKey('pcl-amount-${record.caseId}'),
+                          initialValue: record.requestedReleaseAmount.toString(),
+                          keyboardType: TextInputType.number,
+                          autovalidateMode: AutovalidateMode.always,
+                          decoration: const InputDecoration(labelText: 'Requested release amount (₹)', border: OutlineInputBorder()),
+                          validator: (value) {
+                            final amount = int.tryParse(value?.trim() ?? '');
+                            if (amount == null || amount <= 0) return 'Enter an amount greater than zero.';
+                            if (amount > record.originalFdrAmount) return 'Amount cannot exceed the original FDR.';
+                            if (amount > record.availableBalance) return 'Amount cannot exceed the available balance.';
+                            return null;
+                          },
+                          onChanged: (value) {
+                            final oldAmount = _case.requestedReleaseAmount;
+                            final amount = int.tryParse(value.trim()) ?? 0;
+                            _store.updateProgressiveClosure(requestedAmount: amount);
+                            if (amount != oldAmount) {
+                              _store.appendAuditEntry(
+                                action: 'Partial release amount changed',
+                                associatedId: record.caseId,
+                                actorRole: 'Demo Officer',
+                                payload: 'Requested amount ₹$amount',
+                              );
+                            }
+                            if (amount != oldAmount) setState(() {});
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        Text('Calculated retained balance: ₹${_formatCurrency(record.retainedBalance)}', style: TextStyle(color: record.retainedBalance < 0 ? const Color(0xFFB91C1C) : _ink, fontSize: 13, fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          key: ValueKey('pcl-reason-${record.caseId}'),
+                          initialValue: record.partialReleaseReason,
+                          maxLines: 2,
+                          autovalidateMode: AutovalidateMode.always,
+                          decoration: const InputDecoration(labelText: 'Reason for partial release', border: OutlineInputBorder()),
+                          validator: (value) => value == null || value.trim().isEmpty ? 'A reason is required.' : null,
+                          onChanged: (value) {
+                            final changed = value != _case.partialReleaseReason;
+                            _store.updateProgressiveClosure(reason: value);
+                            if (changed) {
+                              _store.appendAuditEntry(
+                                action: 'Partial release reason changed',
+                                associatedId: record.caseId,
+                                actorRole: 'Demo Officer',
+                                payload: value,
+                              );
+                            }
+                            setState(() {});
+                          },
+                        ),
+                      ]),
+                    ),
+                  ),
+                ],
+                if (isMerger) ...[
+                  const SizedBox(height: 12),
+                  _ReleaseSection(
+                    title: 'Institution and Merger Details',
+                    trailing: const _DemoPill(),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      _MiniInfoRow(label: 'Original institution', value: record.institution),
+                      _MiniInfoRow(label: 'Original institution ID', value: record.originalInstitutionId),
+                      _MiniInfoRow(label: 'Successor institution ID', value: record.successorInstitutionId),
+                      _MiniInfoRow(label: 'Original FDR reference', value: record.originalFdrReference),
+                      _MiniInfoRow(label: 'Original FDR amount', value: '₹${_formatCurrency(record.originalFdrAmount)}'),
+                      TextFormField(
+                        key: ValueKey('merger-successor-${record.caseId}'),
+                        initialValue: record.successorInstitution,
+                        autovalidateMode: AutovalidateMode.always,
+                        decoration: const InputDecoration(labelText: 'Successor institution', border: OutlineInputBorder()),
+                        validator: (value) => value == null || value.trim().isEmpty ? 'Successor institution is required.' : null,
+                        onChanged: (value) {
+                          final changed = value != _case.successorInstitution;
+                          _store.updateMergerDetails(successorInstitution: value);
+                          if (changed) {
+                            _store.appendAuditEntry(
+                              action: 'Successor institution details changed',
+                              associatedId: record.caseId,
+                              actorRole: 'Demo Officer',
+                              payload: value,
+                            );
+                          }
+                          setState(() {});
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        key: ValueKey('merger-reference-${record.caseId}'),
+                        initialValue: record.mergerReference,
+                        autovalidateMode: AutovalidateMode.always,
+                        decoration: const InputDecoration(labelText: 'Merger reference number', border: OutlineInputBorder()),
+                        validator: (value) => value == null || value.trim().isEmpty ? 'Merger reference is required.' : null,
+                        onChanged: (value) {
+                          final changed = value != _case.mergerReference;
+                          _store.updateMergerDetails(mergerReference: value);
+                          if (changed) {
+                            _store.appendAuditEntry(
+                              action: 'Merger reference changed',
+                              associatedId: record.caseId,
+                              actorRole: 'Demo Officer',
+                              payload: value,
+                            );
+                          }
+                          setState(() {});
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        key: ValueKey('merger-date-${record.caseId}'),
+                        initialValue: record.effectiveDate,
+                        autovalidateMode: AutovalidateMode.always,
+                        decoration: const InputDecoration(labelText: 'Effective date', hintText: 'DD Month YYYY', border: OutlineInputBorder()),
+                        validator: (value) => value == null || value.trim().isEmpty ? 'Effective date is required.' : null,
+                        onChanged: (value) {
+                          final changed = value != _case.effectiveDate;
+                          _store.updateMergerDetails(effectiveDate: value);
+                          if (changed) {
+                            _store.appendAuditEntry(
+                              action: 'Merger effective date changed',
+                              associatedId: record.caseId,
+                              actorRole: 'Demo Officer',
+                              payload: value,
+                            );
+                          }
+                          setState(() {});
+                        },
+                      ),
+                    ]),
+                  ),
+                ],
+                ...[
                   const SizedBox(height: 12),
                   _ReleaseSection(
                     title: 'Required Documents',
@@ -2215,18 +2677,32 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                 ],
                 const SizedBox(height: 12),
                 _ReleaseSection(
-                  title: 'Final NOC',
+                  title: isMerger ? 'Final Review and NOC' : 'Final NOC',
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
                           const Expanded(child: Text('Status', style: TextStyle(color: _muted, fontSize: 12))),
-                          _ReleaseStatusBadge(status: nocIssued ? 'NOC Issued — Demo' : 'Awaiting Clearances'),
+                          _ReleaseStatusBadge(status: record.status),
                         ],
                       ),
                       const SizedBox(height: 9),
-                      const Text('Required: all blocking discrepancies resolved, required documents present, and required cell clearances completed.', style: TextStyle(color: _ink, fontSize: 12, height: 1.4)),
+                      Text(isProgressiveClosure
+                          ? 'Required: valid partial amount and reason, required documents, resolved FDR discrepancies, and both cell clearances.'
+                          : isMerger
+                          ? 'Required: verified original FDR, complete merger details, required documents, resolved discrepancies, and both cell clearances.'
+                          : 'Required: all blocking discrepancies resolved, required documents present, and required cell clearances completed.', style: const TextStyle(color: _ink, fontSize: 12, height: 1.4)),
+                      if (isProgressiveClosure && caseApproved) ...[
+                        const SizedBox(height: 8),
+                        Text('Approved amount: ₹${_formatCurrency(record.requestedReleaseAmount)} · Retained balance: ₹${_formatCurrency(record.retainedBalance)}', style: const TextStyle(color: Color(0xFF166534), fontSize: 12, fontWeight: FontWeight.w700)),
+                        const Text('Demo decision only. No real funds were transferred.', style: TextStyle(color: _muted, fontSize: 10)),
+                      ],
+                      if (isMerger && caseApproved) ...[
+                        const SizedBox(height: 8),
+                        Text('Demo relationship recorded: ${record.institution} (${record.originalInstitutionId}) → ${record.successorInstitution} (${record.successorInstitutionId})', style: const TextStyle(color: Color(0xFF166534), fontSize: 12, fontWeight: FontWeight.w700)),
+                        Text('Original FDR ${record.originalFdrReference} remains preserved. This demo record has no legal or official effect.', style: const TextStyle(color: _muted, fontSize: 10)),
+                      ],
                       const SizedBox(height: 10),
                       for (final clearance in record.clearances)
                         Padding(
@@ -2237,6 +2713,10 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                         const SizedBox(height: 8),
                         for (final reason in eligibility.blockingReasons)
                           Padding(padding: const EdgeInsets.only(bottom: 4), child: Text('• $reason', style: const TextStyle(color: Color(0xFF991B1B), fontSize: 11, height: 1.35))),
+                        for (final document in eligibility.missingDocuments)
+                          Padding(padding: const EdgeInsets.only(bottom: 4), child: Text('Missing document: $document', style: const TextStyle(color: Color(0xFF991B1B), fontSize: 11, height: 1.35))),
+                        for (final clearance in eligibility.pendingClearances)
+                          Padding(padding: const EdgeInsets.only(bottom: 4), child: Text('Pending clearance: $clearance', style: const TextStyle(color: Color(0xFF991B1B), fontSize: 11, height: 1.35))),
                       ],
                       if (eligibility.warnings.isNotEmpty) ...[
                         const SizedBox(height: 7),
@@ -2247,14 +2727,26 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
-                          onPressed: eligibility.canAdvance && !nocIssued && isNormalRelease ? _simulateNoc : null,
+                          onPressed: !eligibility.canAdvance || nocIssued || caseApproved
+                              ? null
+                              : isNormalRelease ? _simulateNoc
+                              : isProgressiveClosure ? _simulateProgressiveApproval
+                              : _simulateMergerApproval,
                           icon: const Icon(Icons.verified_outlined),
-                          label: Text(nocIssued ? 'NOC Issued — Demo' : 'Simulate Final NOC'),
+                          label: Text(nocIssued
+                              ? 'NOC Issued — Demo'
+                              : caseApproved
+                              ? record.status
+                              : isProgressiveClosure
+                              ? 'Simulate Partial Release Approval'
+                              : isMerger
+                              ? 'Simulate Merger Approval'
+                              : 'Simulate Final NOC'),
                           style: FilledButton.styleFrom(backgroundColor: _releaseOrange, minimumSize: const Size.fromHeight(46)),
                         ),
                       ),
                       const SizedBox(height: 6),
-                      const Text('Demo only. This action is not an official NOC and does not release funds.', style: TextStyle(color: _muted, fontSize: 10)),
+                      const Text('Demo only. No official approval, legal effect, or real fund transfer is represented.', style: TextStyle(color: _muted, fontSize: 10)),
                     ],
                   ),
                 ),
@@ -2324,29 +2816,25 @@ class _InlineNotice extends StatelessWidget {
 }
 
 class _WorkflowProgress extends StatelessWidget {
-  const _WorkflowProgress({required this.verificationComplete, required this.documentsComplete, required this.clearancesComplete, required this.nocIssued, required this.nextStage});
+  const _WorkflowProgress({required this.stages, required this.completed, required this.nextStage});
 
-  final bool verificationComplete;
-  final bool documentsComplete;
-  final bool clearancesComplete;
-  final bool nocIssued;
+  final List<String> stages;
+  final List<bool> completed;
   final String nextStage;
 
   @override
   Widget build(BuildContext context) {
-    const labels = ['FDR Verification', 'Required Documents', 'Cell Clearances', 'Final NOC'];
-    final complete = [verificationComplete, documentsComplete, clearancesComplete, nocIssued];
-    var currentIndex = labels.indexOf(nextStage);
-    if (currentIndex < 0) currentIndex = 3;
+    var currentIndex = stages.indexOf(nextStage);
+    if (currentIndex < 0) currentIndex = stages.length - 1;
     return Column(children: [
-      for (var index = 0; index < labels.length; index++) ...[
+      for (var index = 0; index < stages.length; index++) ...[
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Column(children: [
-            Container(width: 25, height: 25, alignment: Alignment.center, decoration: BoxDecoration(shape: BoxShape.circle, color: complete[index] ? const Color(0xFF15803D) : index == currentIndex && index == 0 && !verificationComplete ? const Color(0xFFB91C1C) : index == currentIndex ? _releaseOrange : const Color(0xFFF3F4F6)), child: Icon(complete[index] ? Icons.check_rounded : index == currentIndex && index == 0 && !verificationComplete ? Icons.priority_high_rounded : Icons.circle, size: complete[index] ? 16 : 12, color: complete[index] || index == currentIndex ? Colors.white : const Color(0xFF9CA3AF))),
-            if (index < labels.length - 1) Container(width: 2, height: 18, color: complete[index] ? const Color(0xFF86EFAC) : const Color(0xFFE5E7EB)),
+            Container(width: 25, height: 25, alignment: Alignment.center, decoration: BoxDecoration(shape: BoxShape.circle, color: completed[index] ? const Color(0xFF15803D) : index == currentIndex ? _releaseOrange : const Color(0xFFF3F4F6)), child: Icon(completed[index] ? Icons.check_rounded : Icons.circle, size: completed[index] ? 16 : 12, color: completed[index] || index == currentIndex ? Colors.white : const Color(0xFF9CA3AF))),
+            if (index < stages.length - 1) Container(width: 2, height: 18, color: completed[index] ? const Color(0xFF86EFAC) : const Color(0xFFE5E7EB)),
           ]),
           const SizedBox(width: 10),
-          Padding(padding: const EdgeInsets.only(top: 4), child: Text(labels[index], style: TextStyle(color: complete[index] ? const Color(0xFF166534) : index == currentIndex && index == 0 && !verificationComplete ? const Color(0xFFB91C1C) : index == currentIndex ? _deepOrange : _muted, fontSize: 12, fontWeight: index == currentIndex ? FontWeight.w700 : FontWeight.w500))),
+          Expanded(child: Padding(padding: const EdgeInsets.only(top: 4), child: Text(stages[index], style: TextStyle(color: completed[index] ? const Color(0xFF166534) : index == currentIndex ? _deepOrange : _muted, fontSize: 12, fontWeight: index == currentIndex ? FontWeight.w700 : FontWeight.w500)))),
           if (index == currentIndex) const Padding(padding: EdgeInsets.only(left: 7, top: 4), child: Text('CURRENT', style: TextStyle(color: _deepOrange, fontSize: 9, fontWeight: FontWeight.w800))),
         ]),
       ],
