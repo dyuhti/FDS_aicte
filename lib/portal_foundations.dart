@@ -4,6 +4,109 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class PortalShell extends StatelessWidget {
+  const PortalShell({
+    super.key,
+    required this.body,
+    required this.bottomNavigationBar,
+    this.appBar,
+    this.backgroundColor = const Color(0xFFFFFBF7),
+  });
+
+  final Widget body;
+  final Widget bottomNavigationBar;
+  final PreferredSizeWidget? appBar;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: backgroundColor,
+    appBar: appBar,
+    body: SafeArea(top: false, bottom: false, child: body),
+    bottomNavigationBar: bottomNavigationBar,
+  );
+}
+
+class ScreenScaffold extends StatelessWidget {
+  const ScreenScaffold({
+    super.key,
+    required this.body,
+    this.appBar,
+    this.bottomNavigationBar,
+    this.backgroundColor = const Color(0xFFFFFBF7),
+  });
+
+  final Widget body;
+  final PreferredSizeWidget? appBar;
+  final Widget? bottomNavigationBar;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final navigation = bottomNavigationBar;
+    if (navigation != null) {
+      return PortalShell(
+        appBar: appBar,
+        body: body,
+        bottomNavigationBar: NavigationBarTheme(
+          data: NavigationBarTheme.of(context).copyWith(
+            labelTextStyle: const WidgetStatePropertyAll(
+              TextStyle(fontSize: 10),
+            ),
+          ),
+          child: navigation,
+        ),
+        backgroundColor: backgroundColor,
+      );
+    }
+    return Scaffold(
+      backgroundColor: backgroundColor,
+      appBar: appBar,
+      body: SafeArea(top: false, child: body),
+    );
+  }
+}
+
+extension ReadableStatusLabel on Enum {
+  String get displayLabel {
+    const overrides = <String, String>{
+      'actionRequired': 'Action Required',
+      'pending': 'Pending Review',
+      'pendingReview': 'Pending Review',
+      'correctionRequested': 'Correction Requested',
+      'expiringSoon': 'Expiring Soon',
+      'partialMismatch': 'Partial Mismatch',
+      'allMatch': 'All Match',
+      'correctionSubmitted': 'Correction Submitted',
+      'reviewDate': 'Review Date',
+      'passed': 'Passed',
+      'off': 'Off',
+    };
+    return overrides[name] ??
+        name.replaceAllMapped(
+          RegExp(r'([a-z0-9])([A-Z])'),
+          (match) => '${match[1]} ${match[2]}',
+        ).split(' ').map((word) => '${word[0].toUpperCase()}${word.substring(1)}').join(' ');
+  }
+
+  Color get displayColor {
+    final value = name.toLowerCase();
+    if (value.contains('block') || value.contains('reject') || value == 'critical') {
+      return const Color(0xFFB91C1C);
+    }
+    if (value.contains('warning') || value.contains('pending') || value.contains('action') || value == 'expiringsoon') {
+      return const Color(0xFFB45309);
+    }
+    if (value.contains('approved') || value.contains('verified') || value.contains('resolved') || value == 'active' || value == 'passed') {
+      return const Color(0xFF15803D);
+    }
+    if (value.contains('info') || value == 'missing' || value == 'invalid') {
+      return const Color(0xFF475569);
+    }
+    return const Color(0xFF475569);
+  }
+}
+
 abstract interface class Clock {
   DateTime now();
 }

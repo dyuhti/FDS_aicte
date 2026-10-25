@@ -4,6 +4,8 @@ import 'notification_center.dart';
 import 'officer_dashboard.dart';
 import 'portal_foundations.dart';
 
+final ValueNotifier<int> _institutionSelectedTab = ValueNotifier<int>(0);
+
 enum InstitutionSubmissionStatus {
   pending,
   verified,
@@ -264,11 +266,31 @@ class _InstitutionDashboardScreenState
   int _selectedTab = 0;
   InstitutionSubmissionStatus? _statusFilter;
 
+  @override
+  void initState() {
+    super.initState();
+    _institutionSelectedTab.value = 0;
+    _institutionSelectedTab.addListener(_syncSelectedTab);
+  }
+
+  @override
+  void dispose() {
+    _institutionSelectedTab.removeListener(_syncSelectedTab);
+    super.dispose();
+  }
+
+  void _syncSelectedTab() {
+    if (_selectedTab != _institutionSelectedTab.value && mounted) {
+      setState(() => _selectedTab = _institutionSelectedTab.value);
+    }
+  }
+
   void _openSubmissions([InstitutionSubmissionStatus? status]) {
     setState(() {
       _selectedTab = 1;
       _statusFilter = status;
     });
+    _institutionSelectedTab.value = 1;
   }
 
   void _openSubmission(InstitutionSubmission submission) {
@@ -300,7 +322,7 @@ class _InstitutionDashboardScreenState
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: InstitutionDemoStore.instance,
-    builder: (context, _) => Scaffold(
+    builder: (context, _) => ScreenScaffold(
       backgroundColor: _paper,
       appBar: _buildAppBar(context),
       body: switch (_selectedTab) {
@@ -319,11 +341,15 @@ class _InstitutionDashboardScreenState
         _ => _InstitutionProfile(onSignOut: widget.onSignOut),
       },
       bottomNavigationBar: NavigationBar(
+        height: 88,
         selectedIndex: _selectedTab,
-        onDestinationSelected: (index) => setState(() {
-          _selectedTab = index;
-          if (index != 1) _statusFilter = null;
-        }),
+        onDestinationSelected: (index) {
+          setState(() {
+            _selectedTab = index;
+            if (index != 1) _statusFilter = null;
+          });
+          _institutionSelectedTab.value = index;
+        },
         backgroundColor: Colors.white,
         indicatorColor: const Color(0xFFFFE8D5),
         destinations: const [
@@ -413,6 +439,10 @@ class _InstitutionDashboardScreenState
             builder: (_) => NotificationsPage(
               role: NotificationRecipientRole.institution,
               recipientId: _institutionId,
+              onSelectTab: (index) {
+                _institutionSelectedTab.value = index;
+                if (mounted) setState(() => _selectedTab = index);
+              },
               onOpenRelated: (notification) {
                 Navigator.of(context).pop();
                 final id = notification.relatedId;
@@ -446,7 +476,10 @@ class _InstitutionDashboardScreenState
       PopupMenuButton<String>(
         tooltip: 'Institution administrator profile',
         onSelected: (value) {
-          if (value == 'profile') setState(() => _selectedTab = 3);
+          if (value == 'profile') {
+            setState(() => _selectedTab = 3);
+            _institutionSelectedTab.value = 3;
+          }
           if (value == 'signout') widget.onSignOut();
         },
         itemBuilder: (context) => const [
@@ -761,51 +794,114 @@ class _InstitutionDeadlineCenterPage extends StatelessWidget {
       ),
     );
 
-    return Scaffold(
-      backgroundColor: _paper,
-      appBar: AppBar(
-        backgroundColor: _paper,
-        title: const Text('Deadline Command Center'),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(18),
+    return _InstitutionDeadlineCenterContent(deadlines: deadlines);
+  }
+}
+
+class _InstitutionDeadlineCenterContent extends StatefulWidget {
+  const _InstitutionDeadlineCenterContent({required this.deadlines});
+
+  final List<FdrDeadlineInfo> deadlines;
+
+  @override
+  State<_InstitutionDeadlineCenterContent> createState() =>
+      _InstitutionDeadlineCenterContentState();
+}
+
+class _InstitutionDeadlineCenterContentState
+    extends State<_InstitutionDeadlineCenterContent> {
+  String _filter = 'All';
+
+  @override
+  Widget build(BuildContext context) {
+    final filters = <String, MaturityStatus?>{
+      'All': null,
+      'Critical': MaturityStatus.critical,
+      'Expiring Soon': MaturityStatus.expiringSoon,
+      'Matured': MaturityStatus.matured,
+      'Active': MaturityStatus.active,
+      'Review Date': MaturityStatus.invalid,
+    };
+    final visible = widget.deadlines
+        .where((item) => filters[_filter] == null || item.status == filters[_filter])
+        .toList(growable: false);
+    return _InstitutionSubpage(
+      title: 'Deadline Command Center',
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
         children: [
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: MaturityStatus.values
-                .map(
-                  (status) => ChoiceChip(
-                    label: Text(status.label),
-                    selected: status == MaturityStatus.active,
-                    onSelected: (_) {},
-                  ),
-                )
-                .toList(),
+            children: [
+              for (final entry in filters.entries)
+                ChoiceChip(
+                  label: Text('${entry.key} (${entry.value == null ? widget.deadlines.length : widget.deadlines.where((item) => item.status == entry.value).length})'),
+                  selected: _filter == entry.key,
+                  onSelected: (_) => setState(() => _filter = entry.key),
+                ),
+            ],
           ),
           const SizedBox(height: 12),
-          for (final item in deadlines.take(6))
-            Card(
-              margin: const EdgeInsets.only(bottom: 10),
-              child: ListTile(
-                title: Text('${item.submission.reference} · ${item.status.label}'),
-                subtitle: Text(item.nextAction),
-                trailing: item.status == MaturityStatus.active || item.isRenewed
-                    ? null
-                    : TextButton(
-                        onPressed: () => _showInstitutionRenewalDialog(
-                          context,
-                          item.submission.submissionId,
+          if (visible.isEmpty)
+            const _EmptyState(
+              title: 'No FDRs in this bucket',
+              message: 'There are no deadlines matching the selected status.',
+            )
+          else
+            for (final item in visible)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Card(
+                  margin: EdgeInsets.zero,
+                  color: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: const BorderSide(color: _line),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(item.submission.reference, style: const TextStyle(color: _ink, fontWeight: FontWeight.w700)),
+                            ),
+                            _StatusPill(status: item.status),
+                          ],
                         ),
-                        child: const Text('Renew'),
-                      ),
+                        const SizedBox(height: 7),
+                        Text(item.submission.bankName, style: const TextStyle(color: _muted, fontSize: 12)),
+                        const SizedBox(height: 7),
+                        Text('Maturity: ${item.maturityDate == null ? 'Not available' : _formatDate(item.maturityDate!)} · ${item.daysRemaining == null ? 'Review date' : item.daysRemaining! < 0 ? '${item.daysRemaining!.abs()} days overdue' : '${item.daysRemaining} days remaining'}', style: const TextStyle(color: _muted, fontSize: 12)),
+                        const SizedBox(height: 7),
+                        Text(item.nextAction, style: const TextStyle(color: _ink, fontSize: 12)),
+                        if (item.status != MaturityStatus.active && !item.isRenewed) ...[
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () => _showInstitutionRenewalDialog(context, item.submission.submissionId),
+                              icon: const Icon(Icons.autorenew_rounded),
+                              label: const Text('Renew'),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            ),
         ],
       ),
     );
   }
 }
+
+enum _AttentionSeverity { blocking, warning, info }
 
 class _InstitutionAttentionPage extends StatelessWidget {
   const _InstitutionAttentionPage();
@@ -817,30 +913,150 @@ class _InstitutionAttentionPage extends StatelessWidget {
         .where((record) => record.issues.isNotEmpty)
         .toList();
 
-    return Scaffold(
-      backgroundColor: _paper,
-      appBar: AppBar(
-        backgroundColor: _paper,
-        title: const Text('Items Requiring Attention'),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(18),
+    final entries = [
+      for (final record in records)
+        for (final issue in record.issues)
+          (record: record, issue: issue, severity: _attentionSeverity(issue)),
+    ];
+    final groups = <_AttentionSeverity, List<({InstitutionSubmission record, String issue, _AttentionSeverity severity})>>{
+      for (final severity in _AttentionSeverity.values)
+        severity: entries.where((entry) => entry.severity == severity).toList(),
+    };
+    final blockingCount = groups[_AttentionSeverity.blocking]!.length;
+    final warningCount = groups[_AttentionSeverity.warning]!.length;
+    final infoCount = groups[_AttentionSeverity.info]!.length;
+    return _InstitutionSubpage(
+      title: 'Items Requiring Attention',
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
         children: [
-          for (final record in records) ...[
-            for (final issue in record.issues)
-              ListTile(
-                title: Text(issue),
-                subtitle: Text('${record.fdrNumber} · ${record.status.name}'),
-                onTap: () => Navigator.of(context).push<void>(
-                  MaterialPageRoute<void>(
-                    builder: (_) => InstitutionSubmissionDetailPage(
-                      submissionId: record.id,
+          Card(
+            margin: EdgeInsets.zero,
+            color: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: _line)),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(children: [
+                const Icon(Icons.checklist_rounded, color: _deepOrange),
+                const SizedBox(width: 10),
+                Expanded(child: Text('${entries.length} items need action', style: const TextStyle(color: _ink, fontWeight: FontWeight.w700))),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 16),
+          for (final severity in _AttentionSeverity.values)
+            if (groups[severity]!.isNotEmpty) ...[
+              _SectionHeading(title: '${_severityLabel(severity)} (${groups[severity]!.length})'),
+              const SizedBox(height: 8),
+              for (final entry in groups[severity]!)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _AttentionItemCard(
+                    record: entry.record,
+                    issue: entry.issue,
+                    severity: severity,
+                    onTap: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute<void>(builder: (_) => InstitutionSubmissionDetailPage(submissionId: entry.record.id)),
                     ),
                   ),
                 ),
+            ],
+          if (entries.isEmpty)
+            Card(
+              margin: EdgeInsets.zero,
+              color: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: _line)),
+              child: const Padding(
+                padding: EdgeInsets.all(16),
+                child: Row(children: [Icon(Icons.check_circle_outline_rounded, color: Color(0xFF15803D)), SizedBox(width: 10), Expanded(child: Text('No items need your attention.'))]),
               ),
-          ],
+            ),
+          if (entries.isNotEmpty)
+            Semantics(label: 'Severity summary: $blockingCount blocking, $warningCount warnings, $infoCount info', child: const SizedBox.shrink()),
         ],
+      ),
+    );
+  }
+}
+
+_AttentionSeverity _attentionSeverity(String issue) {
+  final normalized = issue.toLowerCase();
+  if (normalized.contains('lien') ||
+      normalized.contains('review') ||
+      normalized.contains('warning') ||
+      normalized.contains('missing') ||
+      normalized.contains('required') ||
+      normalized.contains('incomplete')) {
+    return _AttentionSeverity.warning;
+  }
+  if (normalized.contains('info') || normalized.contains('note')) {
+    return _AttentionSeverity.info;
+  }
+  return _AttentionSeverity.blocking;
+}
+
+String _severityLabel(_AttentionSeverity severity) => switch (severity) {
+  _AttentionSeverity.blocking => 'Blocking',
+  _AttentionSeverity.warning => 'Warnings',
+  _AttentionSeverity.info => 'Info',
+};
+
+class _AttentionItemCard extends StatelessWidget {
+  const _AttentionItemCard({required this.record, required this.issue, required this.severity, required this.onTap});
+
+  final InstitutionSubmission record;
+  final String issue;
+  final _AttentionSeverity severity;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, color, tint) = switch (severity) {
+      _AttentionSeverity.blocking => (Icons.error_outline_rounded, const Color(0xFFB91C1C), const Color(0xFFFEE2E2)),
+      _AttentionSeverity.warning => (Icons.warning_amber_rounded, const Color(0xFFB45309), const Color(0xFFFFEDD5)),
+      _AttentionSeverity.info => (Icons.info_outline_rounded, const Color(0xFF475569), const Color(0xFFE2E8F0)),
+    };
+    final isLong = issue.length > 95;
+    final title = isLong && issue.toLowerCase().contains('duplicate') ? 'Duplicate FDR reference' : issue;
+    return Semantics(
+      button: true,
+      label: '${_severityLabel(severity)} issue: $title. FDR ${record.fdrNumber}. Status ${record.status.displayLabel}.',
+      child: Card(
+        margin: EdgeInsets.zero,
+        color: Colors.white,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: _line)),
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(width: 38, height: 38, decoration: BoxDecoration(color: tint, shape: BoxShape.circle), child: Icon(icon, color: color, size: 20)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _ink, fontSize: 13, fontWeight: FontWeight.w700, height: 1.35)),
+                      if (isLong) ...[
+                        const SizedBox(height: 5),
+                        Text(issue, style: const TextStyle(color: _muted, fontSize: 12, height: 1.4)),
+                      ],
+                      const SizedBox(height: 5),
+                      Text('FDR ${record.fdrNumber}', style: const TextStyle(color: _muted, fontSize: 11)),
+                      const SizedBox(height: 8),
+                      _StatusPill(status: record.status),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 5),
+                const Padding(padding: EdgeInsets.only(top: 8), child: Icon(Icons.chevron_right_rounded, color: _muted)),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -854,16 +1070,12 @@ class _InstitutionCaseHistoryPage extends StatelessWidget {
     final store = InstitutionDemoStore.instance;
     final events = store.caseHistoryForInstitution(_institutionId);
 
-    return Scaffold(
-      backgroundColor: _paper,
-      appBar: AppBar(
-        backgroundColor: _paper,
-        title: const Text('Case History'),
-      ),
-      body: events.isEmpty
+    return _InstitutionSubpage(
+      title: 'Case History',
+      child: events.isEmpty
           ? const Center(child: Text('No history for this institution yet.'))
           : ListView(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
               children: [
                 for (final event in events)
                   ListTile(
@@ -996,6 +1208,7 @@ class InstitutionSubmissionDetailPage extends StatelessWidget {
           : store.releaseCaseForSubmission(record.id);
       return _InstitutionSubpage(
         title: 'Submission Details',
+        selectedTab: 1,
         child: record == null
             ? const _EmptyState(
                 title: 'Submission not found',
@@ -1338,6 +1551,7 @@ class _InstitutionCorrectionPageState extends State<InstitutionCorrectionPage> {
   @override
   Widget build(BuildContext context) => _InstitutionSubpage(
     title: 'Correct FDR Submission',
+    selectedTab: 1,
     child: Form(
       key: _formKey,
       child: ListView(
@@ -1589,6 +1803,7 @@ class _InstitutionReleaseRequestPageState
         .toList();
     return _InstitutionSubpage(
       title: 'Request Release / Refund',
+      selectedTab: 2,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
         children: [
@@ -1852,13 +2067,14 @@ class _InstitutionProfile extends StatelessWidget {
 }
 
 class _InstitutionSubpage extends StatelessWidget {
-  const _InstitutionSubpage({required this.title, required this.child});
+  const _InstitutionSubpage({required this.title, required this.child, this.selectedTab = 0});
 
   final String title;
   final Widget child;
+  final int selectedTab;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => ScreenScaffold(
     backgroundColor: _paper,
     appBar: AppBar(
       title: Text(
@@ -1872,7 +2088,23 @@ class _InstitutionSubpage extends StatelessWidget {
       backgroundColor: _paper,
       surfaceTintColor: Colors.transparent,
     ),
-    body: SafeArea(top: false, child: child),
+    body: child,
+    bottomNavigationBar: NavigationBar(
+      height: 88,
+      selectedIndex: selectedTab,
+      onDestinationSelected: (index) {
+        _institutionSelectedTab.value = index;
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      },
+      backgroundColor: Colors.white,
+      indicatorColor: const Color(0xFFFFE8D5),
+      destinations: const [
+        NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
+        NavigationDestination(icon: Icon(Icons.fact_check_outlined), selectedIcon: Icon(Icons.fact_check_rounded), label: 'My Submissions'),
+        NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), selectedIcon: Icon(Icons.account_balance_wallet_rounded), label: 'Release / Refund'),
+        NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'Profile'),
+      ],
+    ),
   );
 }
 
@@ -2108,37 +2340,14 @@ class _QuickAction extends StatelessWidget {
 class _StatusPill extends StatelessWidget {
   const _StatusPill({required this.status});
 
-  final InstitutionSubmissionStatus status;
+  final Object status;
 
   @override
   Widget build(BuildContext context) {
-    final (label, foreground, background) = switch (status) {
-      InstitutionSubmissionStatus.pending => (
-        'Pending Review',
-        const Color(0xFF92400E),
-        const Color(0xFFFEF3C7),
-      ),
-      InstitutionSubmissionStatus.verified => (
-        'Verified',
-        const Color(0xFF166534),
-        const Color(0xFFDCFCE7),
-      ),
-      InstitutionSubmissionStatus.approved => (
-        'Approved',
-        const Color(0xFF166534),
-        const Color(0xFFDCFCE7),
-      ),
-      InstitutionSubmissionStatus.rejected => (
-        'Rejected',
-        const Color(0xFF991B1B),
-        const Color(0xFFFEE2E2),
-      ),
-      InstitutionSubmissionStatus.actionRequired => (
-        'Action Required',
-        const Color(0xFF9A3412),
-        const Color(0xFFFFEDD5),
-      ),
-    };
+    final enumStatus = status is Enum ? status as Enum : null;
+    final label = enumStatus?.displayLabel ?? status.toString();
+    final foreground = enumStatus?.displayColor ?? _deepOrange;
+    final background = foreground.withValues(alpha: 0.12);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(

@@ -483,6 +483,7 @@ class _OfficerDashboardScreenState extends State<OfficerDashboardScreen> {
             MaterialPageRoute<void>(
               builder: (_) => NotificationsPage(
                 role: NotificationRecipientRole.officer,
+                onSelectTab: (index) => _officerSelectedTab.value = index,
                 onOpenRelated: (notification) {
                   Navigator.of(context).pop();
                   final submission = notification.relatedId == null
@@ -528,6 +529,7 @@ class _OfficerDashboardScreenState extends State<OfficerDashboardScreen> {
                   onOpenPage: _openPage,
                 ),
           bottomNavigationBar: NavigationBar(
+            height: 88,
             selectedIndex: selectedTab,
             onDestinationSelected: (index) {
               if (index != selectedTab) _officerSelectedTab.value = index;
@@ -595,16 +597,20 @@ class OfficerPortalShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectedTab = title == 'Profile'
-        ? 3
-        : title == 'Institutions' || title == 'Institution Details'
-        ? 2
-        : title == 'Home'
-        ? 0
-        : 1;
-    return Scaffold(
+    final selectedTab = switch (title) {
+      'Profile' => 3,
+      'Institutions' || 'Institution Details' => 2,
+      'Home' ||
+      'Officer Action Queue' ||
+      'Deadline Command Center' ||
+      'Case History' ||
+      'Audit Trail' ||
+      'Reports' ||
+      'Verification Rules' => 0,
+      _ => 1,
+    };
+    return ScreenScaffold(
       backgroundColor: _paper,
-      resizeToAvoidBottomInset: true,
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(title == null ? 59 : 107),
         child: SafeArea(
@@ -774,6 +780,7 @@ class OfficerPortalShell extends StatelessWidget {
       bottomNavigationBar:
           bottomNavigationBar ??
           NavigationBar(
+            height: 88,
             selectedIndex: selectedTab,
             onDestinationSelected: (index) {
               _officerSelectedTab.value = index;
@@ -825,70 +832,62 @@ class _DashboardHome extends StatelessWidget {
       context,
     ).formatFullDate(DateTime.now());
     return LayoutBuilder(
-      builder: (context, constraints) {
-        final horizontalPadding = constraints.maxWidth > 700 ? 28.0 : 18.0;
-        return SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            horizontalPadding,
-            12,
-            horizontalPadding,
-            24,
-          ),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 760),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Welcome back, Officer',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: _ink,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Review submissions and manage institutional security deposits.',
-                    style: TextStyle(color: _muted, fontSize: 13, height: 1.4),
-                  ),
-                  const SizedBox(height: 7),
-                  Row(
+          builder: (context, constraints) {
+            final horizontalPadding = constraints.maxWidth > 700 ? 28.0 : 18.0;
+            return SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                12,
+                horizontalPadding,
+                24,
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Icon(
-                        Icons.calendar_today_outlined,
-                        size: 13,
-                        color: _muted,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          dateLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: _muted, fontSize: 12),
+                      Text(
+                        'Welcome back, Officer',
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          color: _ink,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  const SizedBox(height: 18),
-                  _SectionHeading(
-                    title: 'Overview',
-                    trailing: 'Current status',
-                  ),
-                  const SizedBox(height: 10),
-                  LayoutBuilder(
-                    builder: (context, gridConstraints) => GridView.count(
-                      crossAxisCount: 2,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      mainAxisSpacing: 10,
-                      crossAxisSpacing: 10,
-                      childAspectRatio: gridConstraints.maxWidth < 380
-                          ? 1.45
-                          : 1.72,
-                      children: [
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Review submissions and manage institutional security deposits.',
+                        style: TextStyle(color: _muted, fontSize: 13, height: 1.4),
+                      ),
+                      const SizedBox(height: 7),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.calendar_today_outlined,
+                            size: 13,
+                            color: _muted,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              dateLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: _muted, fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      const SizedBox(height: 18),
+                      _SectionHeading(
+                        title: 'Overview',
+                        trailing: 'Current status',
+                      ),
+                      const SizedBox(height: 10),
+                      LayoutBuilder(
+                        builder: (context, gridConstraints) {
+                          final metrics = <_MetricCard>[
                         _MetricCard(
                           label: 'Pending Review',
                           value: repository.countByStatus(
@@ -948,8 +947,47 @@ class _DashboardHome extends StatelessWidget {
                           icon: Icons.account_balance_outlined,
                           color: _orange,
                         ),
-                      ],
-                    ),
+                      ];
+                      final aspectRatio = gridConstraints.maxWidth < 380
+                          ? 1.45
+                          : 1.72;
+                        final baseCardHeight =
+                          ((gridConstraints.maxWidth - 10) / 2) / aspectRatio;
+                        final scale = MediaQuery.textScalerOf(context).scale(1);
+                        final cardHeight = baseCardHeight +
+                          (scale > 1 ? (scale - 1) * 24 : 0);
+                      return Column(
+                        children: [
+                          for (var index = 0; index < metrics.length; index += 2)
+                            Padding(
+                              padding: EdgeInsets.only(
+                                bottom: index + 2 < metrics.length ? 10 : 0,
+                              ),
+                              child: SizedBox(
+                                height: cardHeight,
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: _MetricCard(
+                                        label: metrics[index].label,
+                                        value: metrics[index].value,
+                                        note: metrics[index].note,
+                                        icon: metrics[index].icon,
+                                        color: metrics[index].color,
+                                        wide: index + 1 == metrics.length && metrics.length.isOdd,
+                                      ),
+                                    ),
+                                    if (index + 1 < metrics.length) ...[
+                                      const SizedBox(width: 10),
+                                      Expanded(child: metrics[index + 1]),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
                   ),
                   const SizedBox(height: 20),
                   SummaryTile(
@@ -2107,6 +2145,7 @@ class _MetricCard extends StatelessWidget {
     required this.note,
     required this.icon,
     required this.color,
+    this.wide = false,
   });
 
   final String label;
@@ -2114,6 +2153,7 @@ class _MetricCard extends StatelessWidget {
   final String note;
   final IconData icon;
   final Color color;
+  final bool wide;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -2128,7 +2168,27 @@ class _MetricCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(15),
         border: Border.all(color: _line),
       ),
-      child: Column(
+      child: wide
+          ? Row(
+              children: [
+                Icon(icon, color: color, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _ink, fontSize: 12, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 2),
+                      Text(note, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _muted, fontSize: 10)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text('$value', style: TextStyle(color: color, fontSize: 23, fontWeight: FontWeight.w700)),
+              ],
+            )
+          : Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -2701,7 +2761,7 @@ class _VerificationRulesPage extends StatelessWidget {
               child: ListTile(
                 title: Text(rule.name),
                 subtitle: Text(
-                  '${rule.description}\nSeverity: ${rule.severity.name}',
+                  '${rule.description}\nSeverity: ${rule.severity.displayLabel}',
                 ),
                 isThreeLine: true,
                 leading: Switch(
@@ -2722,7 +2782,7 @@ class _VerificationRulesPage extends StatelessWidget {
                     for (final severity in RuleSeverity.values)
                       PopupMenuItem(
                         value: severity,
-                        child: Text(severity.name),
+                        child: Text(severity.displayLabel),
                       ),
                   ],
                 ),

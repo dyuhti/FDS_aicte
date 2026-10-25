@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'portal_foundations.dart';
+
 enum NotificationRecipientRole { institution, officer }
 
 enum NotificationCategory {
@@ -215,11 +217,13 @@ class NotificationsPage extends StatefulWidget {
     required this.role,
     this.recipientId,
     this.onOpenRelated,
+    this.onSelectTab,
   });
 
   final NotificationRecipientRole role;
   final String? recipientId;
   final ValueChanged<PortalNotification>? onOpenRelated;
+  final ValueChanged<int>? onSelectTab;
 
   @override
   State<NotificationsPage> createState() => _NotificationsPageState();
@@ -243,7 +247,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
         widget.role,
         recipientId: widget.recipientId,
       );
-      return Scaffold(
+      final isInstitution = widget.role == NotificationRecipientRole.institution;
+      return ScreenScaffold(
         appBar: AppBar(
           title: const Text('Notifications'),
           actions: [
@@ -256,6 +261,29 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 child: const Text('Mark all as read'),
               ),
           ],
+        ),
+        bottomNavigationBar: NavigationBar(
+          height: 88,
+          selectedIndex: 0,
+          backgroundColor: Colors.white,
+          indicatorColor: const Color(0xFFFFE8D5),
+          onDestinationSelected: (index) {
+            widget.onSelectTab?.call(index);
+            Navigator.of(context).popUntil((route) => route.isFirst);
+          },
+          destinations: isInstitution
+              ? const [
+                  NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
+                  NavigationDestination(icon: Icon(Icons.fact_check_outlined), selectedIcon: Icon(Icons.fact_check_rounded), label: 'My Submissions'),
+                  NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), selectedIcon: Icon(Icons.account_balance_wallet_rounded), label: 'Release / Refund'),
+                  NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'Profile'),
+                ]
+              : const [
+                  NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
+                  NavigationDestination(icon: Icon(Icons.fact_check_outlined), selectedIcon: Icon(Icons.fact_check_rounded), label: 'Submissions'),
+                  NavigationDestination(icon: Icon(Icons.domain_outlined), selectedIcon: Icon(Icons.domain_rounded), label: 'Institutions'),
+                  NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'Profile'),
+                ],
         ),
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
