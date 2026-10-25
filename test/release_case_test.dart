@@ -923,6 +923,153 @@ void main() {
     expect(find.byTooltip('Back'), findsOneWidget);
   });
 
+  testWidgets(
+    'officer detail screens keep persistent navigation',
+    (tester) async {
+      final store = DemoFdrPortalStore.instance;
+      store.resetDemoData();
+      store.setCurrentSubmission(
+        store.currentSubmission.copyWith(
+          fdrNumber: 'FDR-UNIQUE-NAV-001',
+          declaredDepositAmount: 450000,
+        ),
+      );
+      store.createReleaseCase();
+      store.updateClearanceStatus('Grievance Redressal Cell', 'Cleared');
+      store.updateClearanceStatus('Vigilance Cell', 'Cleared');
+
+      await tester.pumpWidget(const AictePortalApp());
+      await tester.enterText(find.byType(TextFormField).first, 'officer-123');
+      await tester.enterText(find.byType(TextFormField).last, 'demo-password');
+      await tester.ensureVisible(find.text('Sign In to Officer Portal'));
+      await tester.tap(find.text('Sign In to Officer Portal'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Home'), findsOneWidget);
+      expect(find.text('Submissions'), findsOneWidget);
+      expect(find.text('Institutions'), findsOneWidget);
+      expect(find.text('Profile'), findsOneWidget);
+
+      await tester.ensureVisible(find.widgetWithText(TextButton, 'Review').first);
+      await tester.tap(find.widgetWithText(TextButton, 'Review').first);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Run Verification'),
+        350,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.tap(find.text('Run Verification'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Verification Results'), findsOneWidget);
+      expect(find.text('Home'), findsOneWidget);
+      expect(find.text('Submissions'), findsOneWidget);
+      final openReleaseButton = find.widgetWithText(
+        FilledButton,
+        'Open Release / Refund Case',
+      );
+      await tester.scrollUntilVisible(
+        openReleaseButton,
+        400,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.fling(
+        find.byType(ListView).last,
+        const Offset(0, -300),
+        1000,
+      );
+      await tester.tap(openReleaseButton);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Release / Refund Case'), findsOneWidget);
+      expect(find.text('Home'), findsOneWidget);
+      expect(find.text('Submissions'), findsOneWidget);
+
+      await tester.tap(find.text('Home').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Welcome back, Officer'), findsOneWidget);
+    },
+  );
+
+  testWidgets('shared shell fills compact viewports above navigation', (
+    tester,
+  ) async {
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    for (final size in [const Size(390, 844), const Size(360, 640)]) {
+      await tester.pumpWidget(const SizedBox());
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      final textScaler = size.width == 360
+          ? const TextScaler.linear(1.3)
+          : TextScaler.noScaling;
+
+      await tester.pumpWidget(
+        MediaQuery(
+          data: MediaQueryData(
+            size: size,
+            textScaler: textScaler,
+          ),
+          child: const AictePortalApp(),
+        ),
+      );
+      await tester.enterText(find.byType(TextFormField).first, 'officer-123');
+      await tester.enterText(find.byType(TextFormField).last, 'demo-password');
+      await tester.ensureVisible(find.text('Sign In to Officer Portal'));
+      await tester.tap(find.text('Sign In to Officer Portal'));
+      await tester.pumpAndSettle();
+
+      final navigationBar = tester.getRect(find.byType(NavigationBar).last);
+      expect(navigationBar.top, greaterThan(0));
+      expect(find.text('Welcome back, Officer'), findsOneWidget);
+
+      await tester.tap(find.text('Submissions'));
+      await tester.pumpAndSettle();
+      expect(find.text('Submissions'), findsOneWidget);
+      expect(tester.getRect(find.byType(NavigationBar).last).top, greaterThan(0));
+
+      await tester.tap(find.text('Home'));
+      await tester.pumpAndSettle();
+      expect(find.text('Welcome back, Officer'), findsOneWidget);
+    }
+  });
+
+  testWidgets('overview stat cards are display-only', (tester) async {
+    DemoFdrPortalStore.instance.resetDemoData();
+    await tester.pumpWidget(const AictePortalApp());
+    await tester.enterText(find.byType(TextFormField).first, 'officer-123');
+    await tester.enterText(find.byType(TextFormField).last, 'demo-password');
+    await tester.ensureVisible(find.text('Sign In to Officer Portal'));
+    await tester.tap(find.text('Sign In to Officer Portal'));
+    await tester.pumpAndSettle();
+
+    const metricLabels = [
+      'Pending Review',
+      'Approved',
+      'Rejected',
+      'Needs Correction',
+      'Blocked',
+      'Total Submissions',
+      'Total Institutions',
+    ];
+    for (final label in metricLabels) {
+      final card = find.byKey(ValueKey('metric:$label'));
+      expect(card, findsOneWidget);
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      expect(find.text('Welcome back, Officer'), findsOneWidget);
+    }
+
+    await tester.ensureVisible(find.text('Review Submissions'));
+    await tester.tap(find.text('Review Submissions'));
+    await tester.pumpAndSettle();
+    expect(find.text('Pending Review'), findsWidgets);
+    expect(find.text('All Submissions'), findsNothing);
+  });
+
   testWidgets('eligible Normal Release enables and audits simulated Final NOC', (
     tester,
   ) async {
@@ -957,12 +1104,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('REL-2026-00017'), findsOneWidget);
+    final openReleaseButton = find.widgetWithText(
+      FilledButton,
+      'Open Release / Refund Case',
+    );
     await tester.scrollUntilVisible(
-      find.text('Open Release / Refund Case'),
+      openReleaseButton,
       400,
       scrollable: find.byType(Scrollable).last,
     );
-    await tester.tap(find.text('Open Release / Refund Case'));
+    await tester.fling(
+      find.byType(ListView).last,
+      const Offset(0, -300),
+      1000,
+    );
+    await tester.tap(openReleaseButton);
     await tester.pumpAndSettle();
 
     expect(find.text('Ready for Final NOC'), findsOneWidget);
@@ -1055,7 +1211,11 @@ void main() {
       expect(find.text('NOT RUN — Verify saved FDR details'), findsOneWidget);
       expect(find.text('—'), findsNWidgets(3));
 
-      await tester.drag(find.byType(ListView).last, const Offset(0, -450));
+      await tester.scrollUntilVisible(
+        find.text('Run Verification'),
+        300,
+        scrollable: find.byType(Scrollable).last,
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Run Verification'));
       await tester.pumpAndSettle();

@@ -10,6 +10,7 @@ const _ink = Color(0xFF242424);
 const _muted = Color(0xFF6B7280);
 const _line = Color(0xFFEAE6E1);
 const _paper = Color(0xFFFFFBF7);
+final ValueNotifier<int> _officerSelectedTab = ValueNotifier<int>(0);
 
 enum SubmissionStatus {
   pendingReview('Pending Review', Color(0xFFB45309)),
@@ -304,14 +305,18 @@ class OfficerDashboardScreen extends StatefulWidget {
 }
 
 class _OfficerDashboardScreenState extends State<OfficerDashboardScreen> {
-  int _selectedTab = 0;
-
   static const _destinations = [
     'Home',
     'Submissions',
     'Institutions',
     'Profile',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _officerSelectedTab.value = 0;
+  }
 
   void _openPage(String title, {String? subtitle}) {
     Navigator.of(context).push(
@@ -342,64 +347,71 @@ class _OfficerDashboardScreenState extends State<OfficerDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isHome = _selectedTab == 0;
-    final title = _destinations[_selectedTab];
-    return OfficerPortalShell(
-      userId: widget.userId,
-      onNotifications: () => _openPage(
-        'Notifications',
-        subtitle: 'No live notification service is connected in demo mode.',
-      ),
-      onProfile: () => setState(() => _selectedTab = 3),
-      onSignOut: widget.onSignOut,
-      body: isHome
-          ? AnimatedBuilder(
-              animation: DemoFdrPortalStore.instance,
-              builder: (context, _) => _DashboardHome(
-                repository: widget.repository,
-                onOpenPage: _openPage,
-                onReviewSubmission: _openReview,
+    return ValueListenableBuilder<int>(
+      valueListenable: _officerSelectedTab,
+      builder: (context, selectedTab, _) {
+        final isHome = selectedTab == 0;
+        final title = _destinations[selectedTab];
+        return OfficerPortalShell(
+          userId: widget.userId,
+          onNotifications: () => _openPage(
+            'Notifications',
+            subtitle: 'No live notification service is connected in demo mode.',
+          ),
+          onProfile: () => _officerSelectedTab.value = 3,
+          onSignOut: widget.onSignOut,
+          body: isHome
+              ? AnimatedBuilder(
+                  animation: DemoFdrPortalStore.instance,
+                  builder: (context, _) => _DashboardHome(
+                    repository: widget.repository,
+                    onOpenPage: _openPage,
+                    onReviewSubmission: _openReview,
+                  ),
+                )
+              : selectedTab == 1
+              ? _SubmissionListView(
+                  repository: widget.repository,
+                  initialFilter: SubmissionListFilter.all,
+                  onReviewSubmission: _openReview,
+                )
+              : _DestinationBody(
+                  title: title,
+                  subtitle: _tabSubtitle(selectedTab),
+                  onOpenPage: _openPage,
+                ),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: selectedTab,
+            onDestinationSelected: (index) {
+              if (index != selectedTab) _officerSelectedTab.value = index;
+            },
+            backgroundColor: Colors.white,
+            indicatorColor: const Color(0xFFFFE8D5),
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home_rounded),
+                label: 'Home',
               ),
-            )
-          : _selectedTab == 1
-          ? _SubmissionListView(
-              repository: widget.repository,
-              initialFilter: SubmissionListFilter.all,
-              onReviewSubmission: _openReview,
-            )
-          : _DestinationBody(
-              title: title,
-              subtitle: _tabSubtitle(_selectedTab),
-              onOpenPage: _openPage,
-            ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedTab,
-        onDestinationSelected: (index) => setState(() => _selectedTab = index),
-        backgroundColor: Colors.white,
-        indicatorColor: const Color(0xFFFFE8D5),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home_rounded),
-            label: 'Home',
+              NavigationDestination(
+                icon: Icon(Icons.fact_check_outlined),
+                selectedIcon: Icon(Icons.fact_check_rounded),
+                label: 'Submissions',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.domain_outlined),
+                selectedIcon: Icon(Icons.domain_rounded),
+                label: 'Institutions',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.person_outline_rounded),
+                selectedIcon: Icon(Icons.person_rounded),
+                label: 'Profile',
+              ),
+            ],
           ),
-          NavigationDestination(
-            icon: Icon(Icons.fact_check_outlined),
-            selectedIcon: Icon(Icons.fact_check_rounded),
-            label: 'Submissions',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.domain_outlined),
-            selectedIcon: Icon(Icons.domain_rounded),
-            label: 'Institutions',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline_rounded),
-            selectedIcon: Icon(Icons.person_rounded),
-            label: 'Profile',
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -433,12 +445,20 @@ class OfficerPortalShell extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: _paper,
-    resizeToAvoidBottomInset: true,
-    body: Column(
-      children: [
-        SafeArea(
+  Widget build(BuildContext context) {
+    final selectedTab = title == 'Profile'
+        ? 3
+        : title == 'Institutions'
+        ? 2
+        : title == 'Home'
+        ? 0
+        : 1;
+    return Scaffold(
+      backgroundColor: _paper,
+      resizeToAvoidBottomInset: true,
+      appBar: PreferredSize(
+        preferredSize: Size.fromHeight(title == null ? 59 : 107),
+        child: SafeArea(
           bottom: false,
           child: Column(
             children: [
@@ -574,11 +594,42 @@ class OfficerPortalShell extends StatelessWidget {
             ],
           ),
         ),
-        Expanded(child: SafeArea(top: false, child: body)),
-      ],
-    ),
-    bottomNavigationBar: bottomNavigationBar,
-  );
+      ),
+      body: body,
+      bottomNavigationBar: bottomNavigationBar ??
+          NavigationBar(
+            selectedIndex: selectedTab,
+            onDestinationSelected: (index) {
+              _officerSelectedTab.value = index;
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            },
+            backgroundColor: Colors.white,
+            indicatorColor: const Color(0xFFFFE8D5),
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home_rounded),
+                label: 'Home',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.fact_check_outlined),
+                selectedIcon: Icon(Icons.fact_check_rounded),
+                label: 'Submissions',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.domain_outlined),
+                selectedIcon: Icon(Icons.domain_rounded),
+                label: 'Institutions',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.person_outline_rounded),
+                selectedIcon: Icon(Icons.person_rounded),
+                label: 'Profile',
+              ),
+            ],
+          ),
+    );
+  }
 }
 
 class _DashboardHome extends StatelessWidget {
@@ -634,9 +685,13 @@ class _DashboardHome extends StatelessWidget {
                         color: _muted,
                       ),
                       const SizedBox(width: 6),
-                      Text(
-                        dateLabel,
-                        style: const TextStyle(color: _muted, fontSize: 12),
+                      Expanded(
+                        child: Text(
+                          dateLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: _muted, fontSize: 12),
+                        ),
                       ),
                     ],
                   ),
@@ -667,11 +722,6 @@ class _DashboardHome extends StatelessWidget {
                           note: 'Awaiting officer review',
                           icon: Icons.schedule_rounded,
                           color: const Color(0xFFD97706),
-                          onTap: () => onOpenPage(
-                            'Pending Review',
-                            subtitle:
-                                'Shared submissions awaiting officer review.',
-                          ),
                         ),
                         _MetricCard(
                           label: 'Approved',
@@ -681,11 +731,6 @@ class _DashboardHome extends StatelessWidget {
                           note: 'Final approval reached',
                           icon: Icons.verified_rounded,
                           color: const Color(0xFF16A34A),
-                          onTap: () => onOpenPage(
-                            'Approved Submissions',
-                            subtitle:
-                                'Demo cases that reached an approval state.',
-                          ),
                         ),
                         _MetricCard(
                           label: 'Rejected',
@@ -695,11 +740,6 @@ class _DashboardHome extends StatelessWidget {
                           note: 'Rejected submissions',
                           icon: Icons.cancel_outlined,
                           color: const Color(0xFFDC2626),
-                          onTap: () => onOpenPage(
-                            'Rejected Submissions',
-                            subtitle:
-                                'Demo submissions genuinely marked rejected.',
-                          ),
                         ),
                         _MetricCard(
                           label: 'Needs Correction',
@@ -709,10 +749,6 @@ class _DashboardHome extends StatelessWidget {
                           note: 'Correction requested',
                           icon: Icons.edit_note_rounded,
                           color: const Color(0xFFB45309),
-                          onTap: () => onOpenPage(
-                            'Correction Submissions',
-                            subtitle: 'Submissions returned for correction.',
-                          ),
                         ),
                         _MetricCard(
                           label: 'Blocked',
@@ -722,10 +758,6 @@ class _DashboardHome extends StatelessWidget {
                           note: 'Blocked submissions',
                           icon: Icons.block_rounded,
                           color: const Color(0xFFB91C1C),
-                          onTap: () => onOpenPage(
-                            'Blocked Submissions',
-                            subtitle: 'Submissions blocked from review.',
-                          ),
                         ),
                         _MetricCard(
                           label: 'Total Submissions',
@@ -733,10 +765,6 @@ class _DashboardHome extends StatelessWidget {
                           note: 'All cases',
                           icon: Icons.assignment_outlined,
                           color: _orange,
-                          onTap: () => onOpenPage(
-                            'All Submissions',
-                            subtitle: 'All submitted cases.',
-                          ),
                         ),
                         _MetricCard(
                           label: 'Total Institutions',
@@ -744,10 +772,6 @@ class _DashboardHome extends StatelessWidget {
                           note: 'Unique institutions',
                           icon: Icons.account_balance_outlined,
                           color: _orange,
-                          onTap: () => onOpenPage(
-                            'Institution Registry',
-                            subtitle: 'Demo institution registry.',
-                          ),
                         ),
                       ],
                     ),
@@ -762,7 +786,7 @@ class _DashboardHome extends StatelessWidget {
                           icon: Icons.fact_check_outlined,
                           label: 'Review Submissions',
                           onTap: () => onOpenPage(
-                            'Submissions',
+                            'Pending Review',
                             subtitle:
                                 'Submission queue placeholder for the demo.',
                           ),
@@ -950,7 +974,6 @@ class _MetricCard extends StatelessWidget {
     required this.note,
     required this.icon,
     required this.color,
-    required this.onTap,
   });
 
   final String label;
@@ -958,19 +981,17 @@ class _MetricCard extends StatelessWidget {
   final String note;
   final IconData icon;
   final Color color;
-  final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Material(
-    key: ValueKey('metric:$label'),
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(15),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(15),
-      child: Container(
+  Widget build(BuildContext context) => Semantics(
+    container: true,
+    label: '$label, $value',
+    button: false,
+    child: Container(
+        key: ValueKey('metric:$label'),
         padding: const EdgeInsets.all(13),
         decoration: BoxDecoration(
+          color: Colors.white,
           borderRadius: BorderRadius.circular(15),
           border: Border.all(color: _line),
         ),
@@ -992,31 +1013,36 @@ class _MetricCard extends StatelessWidget {
                 ),
               ],
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: _ink,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
+            Flexible(
+              child: FittedBox(
+                alignment: Alignment.bottomLeft,
+                fit: BoxFit.scaleDown,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: _ink,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      note,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: _muted, fontSize: 10),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  note,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: _muted, fontSize: 10),
-                ),
-              ],
+              ),
             ),
           ],
         ),
-      ),
     ),
   );
 }
@@ -4128,8 +4154,7 @@ class _FdrVerificationDetailPageState
     final submission = store.submissionById(record.submissionId);
     return OfficerPortalShell(
       title: 'FDR Verification',
-      body: SafeArea(
-        child: ListView(
+      body: ListView(
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
           children: [
             const _DemoNotice(),
@@ -4238,7 +4263,6 @@ class _FdrVerificationDetailPageState
               ),
             ),
           ],
-        ),
       ),
     );
   }
@@ -4265,8 +4289,7 @@ class _VerificationResultsPageState extends State<_VerificationResultsPage> {
 
     return OfficerPortalShell(
       title: 'Verification Results',
-      body: SafeArea(
-        child: ListView(
+      body: ListView(
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
           children: [
             const _DemoNotice(),
@@ -4597,7 +4620,6 @@ class _VerificationResultsPageState extends State<_VerificationResultsPage> {
               ),
             ],
           ],
-        ),
       ),
     );
   }
@@ -4761,8 +4783,7 @@ class _CorrectDetailsPageState extends State<_CorrectDetailsPage> {
   Widget build(BuildContext context) {
     return OfficerPortalShell(
       title: 'Correct FDR Details',
-      body: SafeArea(
-        child: Form(
+      body: Form(
           key: _formKey,
           child: ListView(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
@@ -4844,7 +4865,6 @@ class _CorrectDetailsPageState extends State<_CorrectDetailsPage> {
               ),
             ],
           ),
-        ),
       ),
     );
   }
@@ -5102,14 +5122,14 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
     final isNormalRelease = record.caseType == 'Normal Release';
     final isProgressiveClosure = record.caseType == 'Progressive Closure';
     final isMerger = record.caseType == 'Merger';
-    final isFdrSubmission =
-        _store.submissionById(record.submissionId)?.caseType ==
-        'FDR Submission';
     final verificationBlocked =
         !_store.verificationCurrent ||
         _store.verificationForEligibility.blocking > 0;
     final nocIssued = record.status == 'NOC Issued — Demo';
     final caseApproved = record.status.endsWith('Approved — Demo');
+      final fdrApproved =
+        _store.submissionById(record.submissionId)?.status ==
+        VerificationStatus.approved;
     final progressiveAmountValidation =
         ReleaseEligibilityService.validateRequestedAmount(
           record.requestedReleaseAmount.toString(),
@@ -5123,8 +5143,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
 
     return OfficerPortalShell(
       title: 'Release / Refund Case',
-      body: SafeArea(
-        child: LayoutBuilder(
+      body: LayoutBuilder(
           builder: (context, constraints) {
             final horizontalPadding = constraints.maxWidth > 700 ? 28.0 : 18.0;
             return ListView(
@@ -5771,20 +5790,18 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                           ),
                       ],
                       const SizedBox(height: 12),
-                      if (isNormalRelease && isFdrSubmission) ...[
+                      if (isNormalRelease) ...[
                         SizedBox(
                           width: double.infinity,
                           child: FilledButton.icon(
                             onPressed:
-                                _store.canApproveFdrSubmissionInDemoMode()
+                                !fdrApproved &&
+                                    _store.canApproveFdrSubmissionInDemoMode()
                                 ? _simulateFdrApproval
                                 : null,
                             icon: const Icon(Icons.verified_rounded),
                             label: Text(
-                              _store
-                                          .submissionById(record.submissionId)
-                                          ?.status ==
-                                      VerificationStatus.approved
+                                fdrApproved
                                   ? 'FDR Approved — Demo'
                                   : 'Approve FDR Submission (Demo)',
                             ),
@@ -5795,8 +5812,23 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                           ),
                         ),
                         const SizedBox(height: 6),
+                        if (fdrApproved)
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                _officerSelectedTab.value = 0;
+                                Navigator.of(context).popUntil(
+                                  (route) => route.isFirst,
+                                );
+                              },
+                              icon: const Icon(Icons.home_outlined),
+                              label: const Text('Back to Home'),
+                            ),
+                          ),
                       ],
-                      SizedBox(
+                      if (!fdrApproved)
+                        SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
                           onPressed:
@@ -5852,7 +5884,6 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
               ],
             );
           },
-        ),
       ),
     );
   }
@@ -6193,22 +6224,23 @@ class _ClearanceCard extends StatelessWidget {
           style: const TextStyle(color: _ink, fontSize: 11, height: 1.35),
         ),
         const SizedBox(height: 9),
-        Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          children: [
-            OutlinedButton.icon(
-              onPressed: onClear,
-              icon: const Icon(Icons.check_rounded, size: 16),
-              label: const Text('Mark Cleared'),
-            ),
-            OutlinedButton.icon(
-              onPressed: onClarification,
-              icon: const Icon(Icons.help_outline_rounded, size: 16),
-              label: const Text('Request Clarification'),
-            ),
-          ],
-        ),
+        if (clearance.status != 'Cleared')
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              OutlinedButton.icon(
+                onPressed: onClear,
+                icon: const Icon(Icons.check_rounded, size: 16),
+                label: const Text('Mark Cleared'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onClarification,
+                icon: const Icon(Icons.help_outline_rounded, size: 16),
+                label: const Text('Request Clarification'),
+              ),
+            ],
+          ),
       ],
     ),
   );
@@ -6372,8 +6404,7 @@ class _AuditTrailPageState extends State<_AuditTrailPage> {
 
     return OfficerPortalShell(
       title: 'Audit Trail',
-      body: SafeArea(
-        child: ListView(
+      body: ListView(
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
           children: [
             const _DemoNotice(),
@@ -6519,7 +6550,6 @@ class _AuditTrailPageState extends State<_AuditTrailPage> {
                 ),
               ),
           ],
-        ),
       ),
     );
   }

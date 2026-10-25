@@ -180,7 +180,7 @@ void main() {
     expect(find.text('Approved'), findsOneWidget);
   });
 
-  testWidgets('Approved overview opens the filtered approved submission list', (
+  testWidgets('Approved overview card stays on Home', (
     tester,
   ) async {
     final store = DemoFdrPortalStore.instance;
@@ -202,32 +202,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('metric:Approved')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Approved Submissions'), findsOneWidget);
-    expect(find.text('Approved (1)'), findsOneWidget);
-    expect(
-      find.text('Submission  FDR-2026-00124', findRichText: true),
-      findsOneWidget,
-    );
-    expect(
-      find.text('FDR reference  FDR-EX-884201-RESOLVED', findRichText: true),
-      findsOneWidget,
-    );
-    expect(
-      find.text('Action  Demo approval by Demo Officer', findRichText: true),
-      findsOneWidget,
-    );
-    expect(find.text('Pending Review (3)'), findsOneWidget);
-
-    await tester.tap(find.text('Pending Review (3)'));
-    await tester.pumpAndSettle();
-    expect(
-      find.text('Submission  FDR-2026-00124', findRichText: true),
-      findsNothing,
-    );
-    expect(
-      find.text('Submission  FDR-2026-00125', findRichText: true),
-      findsOneWidget,
-    );
+    expect(find.text('Welcome back, Officer'), findsOneWidget);
+    expect(find.text('Approved Submissions'), findsNothing);
   });
 
   testWidgets('password is hidden until visibility is toggled', (
@@ -272,19 +248,12 @@ void main() {
       );
     }
 
-    final allSubmissionsCard = find.byKey(
-      const ValueKey('metric:Total Submissions'),
+    await tester.tap(
+      find.byKey(const ValueKey('metric:Total Submissions')),
     );
-    await tester.ensureVisible(allSubmissionsCard);
-    await tester.tap(allSubmissionsCard);
     await tester.pumpAndSettle();
 
-    expect(find.text('All Submissions'), findsOneWidget);
-    expect(find.text('All (6)'), findsOneWidget);
-    expect(find.text('Pending Review (4)'), findsOneWidget);
-    expect(find.text('Approved (0)'), findsOneWidget);
-    expect(find.text('Rejected (0)'), findsOneWidget);
-    expect(find.text('Correction (1)'), findsOneWidget);
-    expect(find.text('Blocked (1)'), findsOneWidget);
+    expect(find.text('Welcome back, Officer'), findsOneWidget);
+    expect(find.text('All Submissions'), findsNothing);
   });
 }
