@@ -1,7 +1,12 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'notification_center.dart';
+import 'portal_foundations.dart';
 
 const _orange = Color(0xFFF97316);
 const _releaseOrange = Color(0xFFFF6B1A);
@@ -64,6 +69,8 @@ class Submission {
     this.correctionHistory = const [],
     this.verificationPassed = false,
     this.updatedAtOverride,
+    this.sourceValues = const {},
+    this.supportedDocuments = const [],
   });
 
   factory Submission.fromFields({
@@ -98,6 +105,8 @@ class Submission {
   final SubmissionStatus status;
   final String bankName;
   final String caseType;
+  final Map<DocumentSource, Map<String, String?>> sourceValues;
+  final List<SupportedDocument> supportedDocuments;
   final String? caseId;
   final int? requestedAmount;
   final int? retainedBalance;
@@ -156,6 +165,123 @@ Map<String, List<Submission>> groupedByInstitution(
   return grouped.map(
     (id, records) => MapEntry(id, List<Submission>.unmodifiable(records)),
   );
+}
+
+List<Institution> _institutionsSelector(Iterable<Submission> submissions) {
+  final byId = <String, Institution>{};
+  for (final submission in submissions) {
+    byId.putIfAbsent(
+      submission.institutionId,
+      () => Institution(
+        id: submission.institutionId,
+        name: submission.institution,
+      ),
+    );
+  }
+  return List<Institution>.unmodifiable(byId.values);
+}
+
+List<Institution> institutions(Iterable<Submission> submissions) =>
+    _institutionsSelector(submissions);
+
+List<Submission> submissionsForInstitution(
+  Iterable<Submission> submissions,
+  String institutionId,
+) => submissions
+    .where((submission) => submission.institutionId == institutionId)
+    .toList(growable: false);
+
+Map<SubmissionStatus, int> statusBreakdownForInstitution(
+  Iterable<Submission> submissions,
+  String institutionId,
+) => {
+  for (final status in SubmissionStatus.values)
+    status: countByStatus(
+      submissionsForInstitution(submissions, institutionId),
+      status,
+    ),
+};
+
+int totalDepositForInstitution(
+  Iterable<Submission> submissions,
+  String institutionId,
+) => submissionsForInstitution(
+  submissions,
+  institutionId,
+).fold(0, (total, submission) => total + submission.depositAmount);
+
+Map<SubmissionStatus, int> totalDepositByStatus(
+  Iterable<Submission> submissions,
+) => {
+  for (final status in SubmissionStatus.values)
+    status: submissionsByStatus(
+      submissions,
+      status,
+    ).fold(0, (total, submission) => total + submission.depositAmount),
+};
+
+Map<String, int> totalDepositByBank(Iterable<Submission> submissions) {
+  final totals = <String, int>{};
+  for (final submission in submissions) {
+    totals.update(
+      submission.bankName,
+      (total) => total + submission.depositAmount,
+      ifAbsent: () => submission.depositAmount,
+    );
+  }
+  return Map<String, int>.unmodifiable(totals);
+}
+
+Map<String, List<Submission>> submissionsByBank(
+  Iterable<Submission> submissions,
+) {
+  final grouped = <String, List<Submission>>{};
+  for (final submission in submissions) {
+    grouped.putIfAbsent(submission.bankName, () => []).add(submission);
+  }
+  final result = <String, List<Submission>>{};
+  for (final entry in grouped.entries) {
+    result[entry.key] = List<Submission>.unmodifiable(entry.value);
+  }
+  return Map<String, List<Submission>>.unmodifiable(result);
+}
+
+Map<SubmissionStatus, int> statusPercentages(Iterable<Submission> submissions) {
+  final total = totalSubmissions(submissions);
+  if (total == 0) {
+    return {for (final status in SubmissionStatus.values) status: 0};
+  }
+  final percentages = <SubmissionStatus, int>{};
+  var assigned = 0;
+  for (final status in SubmissionStatus.values) {
+    final percentage = (countByStatus(submissions, status) * 100 / total)
+        .round();
+    percentages[status] = percentage;
+    assigned += percentage;
+  }
+  if (assigned != 100) {
+    final largest = SubmissionStatus.values.reduce(
+      (left, right) =>
+          countByStatus(submissions, left) >= countByStatus(submissions, right)
+          ? left
+          : right,
+    );
+    percentages[largest] = percentages[largest]! + 100 - assigned;
+  }
+  return percentages;
+}
+
+Submission? latestActivityForInstitution(
+  Iterable<Submission> submissions,
+  String institutionId,
+) {
+  final records = submissionsForInstitution(
+    submissions,
+    institutionId,
+  ).toList();
+  if (records.isEmpty) return null;
+  records.sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+  return records.first;
 }
 
 int _repositoryCountByStatus(
@@ -233,14 +359,7 @@ class MockOfficerDashboardRepository implements OfficerDashboardRepository {
 
   @override
   List<Institution> get institutions {
-    final byId = <String, Institution>{};
-    for (final submission in submissions) {
-      byId[submission.institutionId] = Institution(
-        id: submission.institutionId,
-        name: submission.institution,
-      );
-    }
-    return List<Institution>.unmodifiable(byId.values);
+    return _institutionsSelector(submissions);
   }
 
   @override
@@ -354,9 +473,21 @@ class _OfficerDashboardScreenState extends State<OfficerDashboardScreen> {
         final title = _destinations[selectedTab];
         return OfficerPortalShell(
           userId: widget.userId,
-          onNotifications: () => _openPage(
-            'Notifications',
-            subtitle: 'No live notification service is connected in demo mode.',
+          onNotifications: () => Navigator.of(context).push<void>(
+            MaterialPageRoute<void>(
+              builder: (_) => NotificationsPage(
+                role: NotificationRecipientRole.officer,
+                onOpenRelated: (notification) {
+                  Navigator.of(context).pop();
+                  final submission = notification.relatedId == null
+                      ? null
+                      : DemoFdrPortalStore.instance.submissionById(
+                          notification.relatedId!,
+                        );
+                  if (submission != null) _openReview(submission);
+                },
+              ),
+            ),
           ),
           onProfile: () => _officerSelectedTab.value = 3,
           onSignOut: widget.onSignOut,
@@ -374,6 +505,16 @@ class _OfficerDashboardScreenState extends State<OfficerDashboardScreen> {
                   repository: widget.repository,
                   initialFilter: SubmissionListFilter.all,
                   onReviewSubmission: _openReview,
+                )
+              : selectedTab == 2
+              ? _InstitutionRegistryView(
+                  repository: widget.repository,
+                  onReviewSubmission: _openReview,
+                )
+              : selectedTab == 3
+              ? OfficerProfilePage(
+                  userId: widget.userId,
+                  onSignOut: widget.onSignOut,
                 )
               : _DestinationBody(
                   title: title,
@@ -448,7 +589,7 @@ class OfficerPortalShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final selectedTab = title == 'Profile'
         ? 3
-        : title == 'Institutions'
+        : title == 'Institutions' || title == 'Institution Details'
         ? 2
         : title == 'Home'
         ? 0
@@ -513,9 +654,22 @@ class OfficerPortalShell extends StatelessWidget {
                             onNotifications ??
                             () => _showDemoMessage(
                               context,
-                              'Notifications are demo-only. No live notification service is connected.',
+                              'Notifications are currently unavailable.',
                             ),
-                        icon: const _NotificationIcon(),
+                        icon: AnimatedBuilder(
+                          animation: NotificationCenter.instance,
+                          builder: (context, _) => Badge(
+                            isLabelVisible:
+                                NotificationCenter.instance.unreadCount(
+                                  NotificationRecipientRole.officer,
+                                ) >
+                                0,
+                            label: Text(
+                              '${NotificationCenter.instance.unreadCount(NotificationRecipientRole.officer)}',
+                            ),
+                            child: const _NotificationIcon(),
+                          ),
+                        ),
                       ),
                       PopupMenuButton<String>(
                         tooltip: 'Officer profile',
@@ -525,7 +679,7 @@ class OfficerPortalShell extends StatelessWidget {
                             if (onProfile == null) {
                               _showDemoMessage(
                                 context,
-                                'Profile settings are demo-only. No backend profile is connected.',
+                                'Profile settings are currently unavailable.',
                               );
                             }
                           } else if (value == 'signout') {
@@ -596,7 +750,8 @@ class OfficerPortalShell extends StatelessWidget {
         ),
       ),
       body: body,
-      bottomNavigationBar: bottomNavigationBar ??
+      bottomNavigationBar:
+          bottomNavigationBar ??
           NavigationBar(
             selectedIndex: selectedTab,
             onDestinationSelected: (index) {
@@ -696,11 +851,10 @@ class _DashboardHome extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  const _DemoNotice(),
                   const SizedBox(height: 18),
                   _SectionHeading(
                     title: 'Overview',
-                    trailing: 'Live demo state',
+                    trailing: 'Current status',
                   ),
                   const SizedBox(height: 10),
                   LayoutBuilder(
@@ -777,6 +931,39 @@ class _DashboardHome extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 20),
+                  _SectionHeading(
+                    title: 'Action Queue',
+                    trailing:
+                        '${buildOfficerActionQueue(DemoFdrPortalStore.instance).length} items',
+                  ),
+                  const SizedBox(height: 8),
+                  _OfficerActionQueue(
+                    items: buildOfficerActionQueue(DemoFdrPortalStore.instance),
+                    onOpen: (item) {
+                      final submission = DemoFdrPortalStore.instance
+                          .submissionById(item.relatedSubmissionId);
+                      if (submission != null) onReviewSubmission(submission);
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  _SectionHeading(
+                    title: 'Deadline Command Center',
+                    actionLabel: 'Run Reminder Scan',
+                    onAction: () {
+                      final created = DemoFdrPortalStore.instance
+                          .runReminderScan();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('$created reminder(s) generated'),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  _DeadlineList(
+                    items: DemoFdrPortalStore.instance.deadlineItems,
+                  ),
+                  const SizedBox(height: 20),
                   const _SectionHeading(title: 'Quick Actions'),
                   const SizedBox(height: 10),
                   Row(
@@ -787,8 +974,7 @@ class _DashboardHome extends StatelessWidget {
                           label: 'Review Submissions',
                           onTap: () => onOpenPage(
                             'Pending Review',
-                            subtitle:
-                                'Submission queue placeholder for the demo.',
+                            subtitle: 'Review submissions awaiting action.',
                           ),
                         ),
                       ),
@@ -797,11 +983,7 @@ class _DashboardHome extends StatelessWidget {
                         child: _QuickAction(
                           icon: Icons.domain_outlined,
                           label: 'Institution Registry',
-                          onTap: () => onOpenPage(
-                            'Institution Registry',
-                            subtitle:
-                                'Registered institution list placeholder.',
-                          ),
+                          onTap: () => _officerSelectedTab.value = 2,
                         ),
                       ),
                     ],
@@ -810,11 +992,7 @@ class _DashboardHome extends StatelessWidget {
                   _QuickAction(
                     icon: Icons.analytics_outlined,
                     label: 'Reports',
-                    onTap: () => onOpenPage(
-                      'Reports',
-                      subtitle:
-                          'Deposit verification and approval reports will appear here.',
-                    ),
+                    onTap: () => onOpenPage('Reports'),
                   ),
                   const SizedBox(height: 21),
                   _SectionHeading(
@@ -857,6 +1035,670 @@ class _DashboardHome extends StatelessWidget {
   }
 }
 
+class _InstitutionRegistryView extends StatefulWidget {
+  const _InstitutionRegistryView({
+    required this.repository,
+    required this.onReviewSubmission,
+  });
+
+  final OfficerDashboardRepository repository;
+  final ValueChanged<FdrSubmission> onReviewSubmission;
+
+  @override
+  State<_InstitutionRegistryView> createState() =>
+      _InstitutionRegistryViewState();
+}
+
+class _OfficerActionQueue extends StatelessWidget {
+  const _OfficerActionQueue({required this.items, required this.onOpen});
+
+  final List<ActionQueueItem> items;
+  final ValueChanged<ActionQueueItem> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) {
+      return const _InlineEmptyState(
+        message: 'No officer actions require attention.',
+      );
+    }
+    return Column(
+      children: [
+        for (final item in items.take(5))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Card(
+              margin: EdgeInsets.zero,
+              child: ListTile(
+                dense: true,
+                leading: Icon(
+                  item.priority == 'High'
+                      ? Icons.priority_high_rounded
+                      : Icons.schedule_rounded,
+                  color: item.priority == 'High'
+                      ? const Color(0xFFB91C1C)
+                      : _orange,
+                ),
+                title: Text(
+                  item.reference,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: Text('${item.institution}\n${item.reason}'),
+                isThreeLine: true,
+                trailing: TextButton(
+                  onPressed: () => onOpen(item),
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _DeadlineList extends StatelessWidget {
+  const _DeadlineList({required this.items});
+
+  final List<FdrDeadlineInfo> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = items
+        .where((item) => item.status != MaturityStatus.active)
+        .take(5)
+        .toList();
+    if (visible.isEmpty) {
+      return const _InlineEmptyState(
+        message: 'No approaching or overdue maturities.',
+      );
+    }
+    return Column(
+      children: [
+        for (final item in visible)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(
+              item.status == MaturityStatus.matured ||
+                      item.status == MaturityStatus.critical
+                  ? Icons.warning_amber_rounded
+                  : Icons.event_outlined,
+              color:
+                  item.status == MaturityStatus.matured ||
+                      item.status == MaturityStatus.critical
+                  ? const Color(0xFFB91C1C)
+                  : _orange,
+            ),
+            title: Text('${item.submission.reference} · ${item.status.label}'),
+            subtitle: Text(
+              '${item.submission.institution} · ${item.maturityDate == null ? 'Invalid date' : _parsePortalDateLabel(item.maturityDate!)}\n${item.daysRemaining == null
+                  ? item.nextAction
+                  : item.daysRemaining! < 0
+                  ? '${-item.daysRemaining!} days overdue'
+                  : '${item.daysRemaining} days remaining'}',
+            ),
+            isThreeLine: true,
+          ),
+      ],
+    );
+  }
+}
+
+class _InlineEmptyState extends StatelessWidget {
+  const _InlineEmptyState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: _line),
+    ),
+    child: Row(
+      children: [
+        const Icon(
+          Icons.check_circle_outline_rounded,
+          color: Color(0xFF15803D),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(message, style: const TextStyle(color: _muted)),
+        ),
+      ],
+    ),
+  );
+}
+
+class _InstitutionRegistryViewState extends State<_InstitutionRegistryView> {
+  final _searchController = TextEditingController();
+  String _filter = 'All';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: DemoFdrPortalStore.instance,
+    builder: (context, _) {
+      final records = widget.repository.submissions;
+      final query = _searchController.text.trim().toLowerCase();
+      final visible = institutions(records).where((institution) {
+        final matchesSearch =
+            query.isEmpty ||
+            institution.name.toLowerCase().contains(query) ||
+            institution.id.toLowerCase().contains(query);
+        final breakdown = statusBreakdownForInstitution(
+          records,
+          institution.id,
+        );
+        final matchesFilter = switch (_filter) {
+          'Has Pending' => breakdown[SubmissionStatus.pendingReview]! > 0,
+          'Has Correction' =>
+            breakdown[SubmissionStatus.correctionRequested]! > 0,
+          'Has Blocked' => breakdown[SubmissionStatus.blocked]! > 0,
+          _ => true,
+        };
+        return matchesSearch && matchesFilter;
+      }).toList();
+      return SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(18, 12, 18, 8),
+              child: _DemoNotice(),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  hintText: 'Search by institution name or ID',
+                  prefixIcon: Icon(Icons.search_rounded),
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(18, 10, 18, 8),
+              child: Row(
+                children: [
+                  for (final filter in const [
+                    'All',
+                    'Has Pending',
+                    'Has Correction',
+                    'Has Blocked',
+                  ]) ...[
+                    ChoiceChip(
+                      label: Text(filter),
+                      selected: _filter == filter,
+                      onSelected: (_) => setState(() => _filter = filter),
+                    ),
+                    const SizedBox(width: 7),
+                  ],
+                ],
+              ),
+            ),
+            Expanded(
+              child: visible.isEmpty
+                  ? const Center(
+                      child: Text('No institutions match your search'),
+                    )
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
+                      child: Column(
+                        children: [
+                          for (final institution in visible) ...[
+                            _InstitutionCard(
+                              institution: institution,
+                              submissions: records,
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => _InstitutionDetailPage(
+                                    institution: institution,
+                                    onReviewSubmission:
+                                        widget.onReviewSubmission,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
+                        ],
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _InstitutionCard extends StatelessWidget {
+  const _InstitutionCard({
+    required this.institution,
+    required this.submissions,
+    required this.onTap,
+  });
+
+  final Institution institution;
+  final Iterable<Submission> submissions;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final records = submissionsForInstitution(submissions, institution.id);
+    final breakdown = statusBreakdownForInstitution(
+      submissions,
+      institution.id,
+    );
+    final latest = latestActivityForInstitution(submissions, institution.id);
+    final risk = assessInstitutionRisk(records);
+    return Card(
+      key: ValueKey('institution:${institution.id}'),
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      institution.name,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded, color: _muted),
+                ],
+              ),
+              Text(
+                institution.id,
+                style: const TextStyle(color: _muted, fontSize: 11),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Rule-based risk: ${risk.category}',
+                style: TextStyle(
+                  color: risk.category == 'High'
+                      ? const Color(0xFFB91C1C)
+                      : risk.category == 'Medium'
+                      ? const Color(0xFFB45309)
+                      : const Color(0xFF15803D),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${records.length} submissions',
+                style: const TextStyle(
+                  color: _ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Wrap(
+                spacing: 5,
+                runSpacing: 5,
+                children: [
+                  for (final status in SubmissionStatus.values)
+                    if (breakdown[status]! > 0)
+                      _CountChip(status: status, count: breakdown[status]!),
+                ],
+              ),
+              const SizedBox(height: 9),
+              Wrap(
+                spacing: 14,
+                runSpacing: 4,
+                children: [
+                  Text(
+                    'Total deposit ₹${_formatCurrency(totalDepositForInstitution(submissions, institution.id))}',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  Text(
+                    'Last activity ${latest == null ? '—' : _shortDate(latest.updatedAt)}',
+                    style: const TextStyle(color: _muted, fontSize: 11),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CountChip extends StatelessWidget {
+  const _CountChip({required this.status, required this.count});
+  final SubmissionStatus status;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+    decoration: BoxDecoration(
+      color: status.color.withValues(alpha: .1),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Text(
+      '${status.label} $count',
+      style: TextStyle(
+        color: status.color,
+        fontSize: 10,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  );
+}
+
+class _InstitutionDetailPage extends StatelessWidget {
+  const _InstitutionDetailPage({
+    required this.institution,
+    required this.onReviewSubmission,
+  });
+  final Institution institution;
+  final ValueChanged<FdrSubmission> onReviewSubmission;
+
+  @override
+  Widget build(BuildContext context) => OfficerPortalShell(
+    title: 'Institution Details',
+    body: AnimatedBuilder(
+      animation: DemoFdrPortalStore.instance,
+      builder: (context, _) {
+        final records = submissionsForInstitution(
+          const MockOfficerDashboardRepository().submissions,
+          institution.id,
+        );
+        final breakdown = statusBreakdownForInstitution(
+          records,
+          institution.id,
+        );
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+          children: [
+            _DemoNotice(),
+            const SizedBox(height: 14),
+            Text(
+              institution.name,
+              style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
+            ),
+            Text(institution.id, style: const TextStyle(color: _muted)),
+            const SizedBox(height: 12),
+            Text(
+              'Submissions ${records.length} · Pending ${breakdown[SubmissionStatus.pendingReview]} · Approved ${breakdown[SubmissionStatus.approved]}',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 14),
+            for (final submission in records) ...[
+              _SubmissionRecordCard(
+                submission: submission,
+                onReview: () => onReviewSubmission(submission),
+              ),
+              const SizedBox(height: 9),
+            ],
+          ],
+        );
+      },
+    ),
+  );
+}
+
+class _ReportsView extends StatelessWidget {
+  const _ReportsView();
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: DemoFdrPortalStore.instance,
+    builder: (context, _) {
+      final records = const MockOfficerDashboardRepository().submissions;
+      final deposits = totalDepositByStatus(records);
+      final banks = submissionsByBank(records);
+      final total = records.length;
+      final resolved = records
+          .where((record) => record.status != SubmissionStatus.pendingReview)
+          .length;
+      final percentages = statusPercentages(records);
+      return SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const _DemoNotice(),
+            const SizedBox(height: 14),
+            const _ReportSection(title: 'Summary', child: _ReportSummary()),
+            const SizedBox(height: 10),
+            _ReportSection(
+              title: 'Status Distribution',
+              child: Column(
+                children: [
+                  for (final status in SubmissionStatus.values)
+                    _DistributionRow(
+                      status: status,
+                      count: countByStatus(records, status),
+                      percentage: percentages[status]!,
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            _ReportSection(
+              title: 'Deposit by Status',
+              child: Column(
+                children: [
+                  for (final status in SubmissionStatus.values)
+                    _ReportLine(
+                      label: status.label,
+                      value: '₹${_formatCurrency(deposits[status]!)}',
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            _ReportSection(
+              title: 'Deposit by Bank',
+              child: Column(
+                children: [
+                  for (final entry in banks.entries)
+                    _ReportLine(
+                      label: entry.key,
+                      value:
+                          '${entry.value.length} submissions · ₹${_formatCurrency(totalDepositByBank(records)[entry.key]!)}',
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            _ReportSection(title: 'Recent Activity', child: _RecentActivity()),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () async {
+                final csv = buildSubmissionsCsv(records);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'CSV report copied (${records.length} records)',
+                    ),
+                  ),
+                );
+                await Clipboard.setData(ClipboardData(text: csv));
+              },
+              icon: const Icon(Icons.download_outlined),
+              label: const Text('Export Report'),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Pending $total · Resolved $resolved',
+              style: const TextStyle(color: _muted, fontSize: 11),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _ReportSummary extends StatelessWidget {
+  const _ReportSummary();
+  @override
+  Widget build(BuildContext context) {
+    final records = const MockOfficerDashboardRepository().submissions;
+    return Wrap(
+      spacing: 18,
+      runSpacing: 10,
+      children: [
+        _SummaryValue('Total Submissions', '${records.length}'),
+        _SummaryValue('Total Institutions', '${institutions(records).length}'),
+        _SummaryValue(
+          'Total Deposit Value',
+          '₹${_formatCurrency(records.fold(0, (sum, item) => sum + item.depositAmount))}',
+        ),
+        _SummaryValue(
+          'Pending vs Resolved',
+          '${countByStatus(records, SubmissionStatus.pendingReview)} vs ${records.length - countByStatus(records, SubmissionStatus.pendingReview)}',
+        ),
+      ],
+    );
+  }
+}
+
+class _SummaryValue extends StatelessWidget {
+  const _SummaryValue(this.label, this.value);
+  final String label;
+  final String value;
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 145,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+        ),
+        Text(label, style: const TextStyle(color: _muted, fontSize: 11)),
+      ],
+    ),
+  );
+}
+
+class _ReportSection extends StatelessWidget {
+  const _ReportSection({required this.title, required this.child});
+  final String title;
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => Card(
+    margin: EdgeInsets.zero,
+    child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    ),
+  );
+}
+
+class _ReportLine extends StatelessWidget {
+  const _ReportLine({required this.label, required this.value});
+  final String label;
+  final String value;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+        const SizedBox(width: 8),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+      ],
+    ),
+  );
+}
+
+class _DistributionRow extends StatelessWidget {
+  const _DistributionRow({
+    required this.status,
+    required this.count,
+    required this.percentage,
+  });
+  final SubmissionStatus status;
+  final int count;
+  final int percentage;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(
+      children: [
+        SizedBox(
+          width: 92,
+          child: Text(status.label, style: const TextStyle(fontSize: 11)),
+        ),
+        Expanded(
+          child: LinearProgressIndicator(
+            value: percentage / 100,
+            color: status.color,
+            backgroundColor: _line,
+            minHeight: 8,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '$count ($percentage%)',
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+        ),
+      ],
+    ),
+  );
+}
+
+class _RecentActivity extends StatelessWidget {
+  const _RecentActivity();
+  @override
+  Widget build(BuildContext context) {
+    final store = DemoFdrPortalStore.instance;
+    final records = const MockOfficerDashboardRepository().submissions;
+    final rows = store.auditEntries.reversed.take(5).map((entry) {
+      final submission = records
+          .where((item) => item.submissionId == entry.associatedId)
+          .firstOrNull;
+      return '${entry.associatedId} · ${submission?.institution ?? 'Portal'} · ${entry.action} · ${entry.timestamp}';
+    });
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final row in rows)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text(row, style: const TextStyle(fontSize: 11)),
+          ),
+      ],
+    );
+  }
+}
+
 class _NotificationIcon extends StatelessWidget {
   const _NotificationIcon();
 
@@ -886,30 +1728,7 @@ class _DemoNotice extends StatelessWidget {
   const _DemoNotice();
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
-    decoration: BoxDecoration(
-      color: const Color(0xFFFFF4E8),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: const Color(0xFFF8D8B8)),
-    ),
-    child: const Row(
-      children: [
-        Icon(Icons.info_outline_rounded, color: _deepOrange, size: 17),
-        SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            'Demo mode · All institutions, cases and statuses shown are fictional sample data.',
-            style: TextStyle(
-              color: Color(0xFF8A4315),
-              fontSize: 11,
-              height: 1.35,
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class _SectionHeading extends StatelessWidget {
@@ -988,61 +1807,61 @@ class _MetricCard extends StatelessWidget {
     label: '$label, $value',
     button: false,
     child: Container(
-        key: ValueKey('metric:$label'),
-        padding: const EdgeInsets.all(13),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: _line),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: color, size: 18),
-                const Spacer(),
-                Text(
-                  '$value',
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 23,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-            Flexible(
-              child: FittedBox(
-                alignment: Alignment.bottomLeft,
-                fit: BoxFit.scaleDown,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: _ink,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      note,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: _muted, fontSize: 10),
-                    ),
-                  ],
+      key: ValueKey('metric:$label'),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: _line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 18),
+              const Spacer(),
+              Text(
+                '$value',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 23,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
+            ],
+          ),
+          Flexible(
+            child: FittedBox(
+              alignment: Alignment.bottomLeft,
+              fit: BoxFit.scaleDown,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _ink,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    note,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: _muted, fontSize: 10),
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
     ),
   );
 }
@@ -1307,6 +2126,320 @@ class _ActivityRow extends StatelessWidget {
   }
 }
 
+class OfficerProfilePage extends StatefulWidget {
+  const OfficerProfilePage({
+    super.key,
+    required this.userId,
+    required this.onSignOut,
+  });
+
+  final String userId;
+  final VoidCallback onSignOut;
+
+  @override
+  State<OfficerProfilePage> createState() => _OfficerProfilePageState();
+}
+
+class _OfficerProfilePageState extends State<OfficerProfilePage> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController = TextEditingController(
+    text: 'AICTE Officer',
+  );
+  late final TextEditingController _emailController = TextEditingController(
+    text: 'officer@aicte.example',
+  );
+  bool _editing = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: Listenable.merge([
+      DemoFdrPortalStore.instance,
+      NotificationCenter.instance,
+    ]),
+    builder: (context, _) {
+      final summary = const MockOfficerDashboardRepository().summary;
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+        children: [
+          const SizedBox(height: 18),
+          CircleAvatar(
+            radius: 34,
+            backgroundColor: const Color(0xFFFFE8D5),
+            child: Text(
+              _initials(_nameController.text),
+              style: const TextStyle(
+                color: _deepOrange,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(height: 9),
+          Center(
+            child: Text(
+              _nameController.text,
+              style: const TextStyle(
+                color: _ink,
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Center(
+            child: Text(
+              'AICTE Officer · ${widget.userId}',
+              style: const TextStyle(color: _muted, fontSize: 12),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Officer Information',
+                  style: TextStyle(
+                    color: _ink,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() => _editing = !_editing),
+                icon: const Icon(Icons.edit_outlined),
+                label: Text(_editing ? 'Cancel' : 'Edit profile'),
+              ),
+            ],
+          ),
+          if (_editing)
+            Form(
+              key: _formKey,
+              child: Column(
+                children: [
+                  TextFormField(
+                    controller: _nameController,
+                    decoration: const InputDecoration(labelText: 'Full name'),
+                    validator: (value) =>
+                        value!.trim().isEmpty ? 'Enter a name' : null,
+                  ),
+                  TextFormField(
+                    controller: _emailController,
+                    decoration: const InputDecoration(
+                      labelText: 'Official email',
+                    ),
+                    validator: (value) =>
+                        value!.contains('@') ? null : 'Enter a valid email',
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton(
+                      onPressed: () {
+                        if (_formKey.currentState!.validate()) {
+                          setState(() => _editing = false);
+                        }
+                      },
+                      child: const Text('Save'),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            _OfficerInfoPanel(
+              title: 'Current officer',
+              rows: {
+                'Full name': _nameController.text,
+                'Officer ID': widget.userId,
+                'Email address': _emailController.text,
+                'Designation': 'AICTE Officer',
+                'Department': 'Security Deposit Division',
+                'Account status': 'Active',
+                'Role': 'AICTE Officer',
+              },
+            ),
+          const Text(
+            'Preferences',
+            style: TextStyle(
+              color: _ink,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          _preferenceTile('In-app notifications', 'inApp'),
+          _preferenceTile('Approval and submission notifications', 'workflow'),
+          _preferenceTile('Reminder notifications', 'reminders'),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const _VerificationRulesPage(),
+              ),
+            ),
+            icon: const Icon(Icons.rule_folder_outlined),
+            label: const Text('Verification Rules'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () {
+              DemoFdrPortalStore.instance.resetDemoData();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Demo data reset.')),
+              );
+            },
+            icon: const Icon(Icons.restart_alt_rounded),
+            label: const Text('Reset Demo Data'),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Activity Summary',
+            style: TextStyle(
+              color: _ink,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          _OfficerInfoPanel(
+            title: 'Workflow activity',
+            rows: {
+              'Submissions reviewed':
+                  '${summary['Approved']! + summary['Rejected']!}',
+              'Approved': '${summary['Approved']}',
+              'Returned or rejected':
+                  '${summary['Rejected']! + summary['Needs Correction']!}',
+              'Pending assigned': '${summary['Pending Review']}',
+            },
+          ),
+          const SizedBox(height: 14),
+          const _OfficerInfoPanel(
+            title: 'About the Portal',
+            rows: {
+              'Portal': 'AICTE Security Deposit Management Portal',
+              'Version': '1.0.0',
+            },
+          ),
+        ],
+      );
+    },
+  );
+
+  Widget _preferenceTile(String title, String key) => SwitchListTile(
+    contentPadding: EdgeInsets.zero,
+    title: Text(title),
+    value: NotificationCenter.instance.preference(key),
+    onChanged: (value) => NotificationCenter.instance.setPreference(key, value),
+  );
+}
+
+class _VerificationRulesPage extends StatelessWidget {
+  const _VerificationRulesPage();
+
+  @override
+  Widget build(BuildContext context) => OfficerPortalShell(
+    title: 'Verification Rules',
+    body: AnimatedBuilder(
+      animation: DemoFdrPortalStore.instance,
+      builder: (context, _) => ListView(
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
+        children: [
+          const _DemoNotice(),
+          const SizedBox(height: 12),
+          for (final rule in DemoFdrPortalStore.instance.rules)
+            Card(
+              margin: const EdgeInsets.only(bottom: 9),
+              child: ListTile(
+                title: Text(rule.name),
+                subtitle: Text(
+                  '${rule.description}\nSeverity: ${rule.severity.name}',
+                ),
+                isThreeLine: true,
+                leading: Switch(
+                  value: rule.enabled,
+                  onChanged: (enabled) =>
+                      DemoFdrPortalStore.instance.updateRule(
+                        rule.copyWith(enabled: enabled),
+                      ),
+                ),
+                trailing: PopupMenuButton<RuleSeverity>(
+                  tooltip: 'Change severity',
+                  initialValue: rule.severity,
+                  onSelected: (severity) =>
+                      DemoFdrPortalStore.instance.updateRule(
+                        rule.copyWith(severity: severity),
+                      ),
+                  itemBuilder: (context) => [
+                    for (final severity in RuleSeverity.values)
+                      PopupMenuItem(
+                        value: severity,
+                        child: Text(severity.name),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _OfficerInfoPanel extends StatelessWidget {
+  const _OfficerInfoPanel({required this.title, required this.rows});
+
+  final String title;
+  final Map<String, String> rows;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: _line),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        for (final entry in rows.entries)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 112,
+                  child: Text(
+                    entry.key,
+                    style: const TextStyle(color: _muted, fontSize: 12),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    entry.value,
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
 class _DestinationBody extends StatelessWidget {
   const _DestinationBody({
     required this.title,
@@ -1393,7 +2526,9 @@ class _DestinationPageState extends State<_DestinationPage> {
         widget.title == 'Blocked Submissions';
     return OfficerPortalShell(
       title: isSubmissionList ? _filterTitle(_filter) : widget.title,
-      body: isSubmissionList
+      body: widget.title == 'Reports'
+          ? const _ReportsView()
+          : isSubmissionList
           ? _SubmissionListView(
               repository: const MockOfficerDashboardRepository(),
               initialFilter: _filter,
@@ -1599,7 +2734,7 @@ class _SubmissionListViewState extends State<_SubmissionListView> {
                             ),
                             const SizedBox(height: 4),
                             const Text(
-                              'Demo records will appear here when their status changes.',
+                              'Records will appear here when their status changes.',
                               textAlign: TextAlign.center,
                               style: TextStyle(color: _muted, fontSize: 12),
                             ),
@@ -1776,9 +2911,12 @@ IconData _tabIcon(String title) => switch (title) {
 };
 
 class DemoFdrPortalStore extends ChangeNotifier {
-  DemoFdrPortalStore._();
+  DemoFdrPortalStore._({Clock clock = const SystemClock()}) : _clock = clock {
+    NotificationCenter.instance.seedDemoNotifications();
+  }
 
   static final DemoFdrPortalStore instance = DemoFdrPortalStore._();
+  final Clock _clock;
 
   FdrRecord _currentSubmission = _blockedSubmission;
 
@@ -1911,6 +3049,11 @@ class DemoFdrPortalStore extends ChangeNotifier {
   int _nextInstitutionSubmissionSequence = 1;
   int _nextInstitutionCaseSequence = 1;
   final List<AuditEntry> _auditEntries = <AuditEntry>[];
+  final Set<String> _reminderKeys = <String>{};
+  final Map<String, RuleConfig> _rules = {
+    for (final rule in defaultRuleConfigs()) rule.id: rule,
+  };
+  final Map<String, List<int>> _documentBytes = <String, List<int>>{};
   DemoVerificationScenario _verificationScenario =
       DemoVerificationScenario.blocked;
   bool _verificationCurrent = true;
@@ -2049,6 +3192,155 @@ class DemoFdrPortalStore extends ChangeNotifier {
   Map<String, String> get mergerRelationships =>
       Map.unmodifiable(_mergerRelationships);
   List<AuditEntry> get auditEntries => List.unmodifiable(_auditEntries);
+  List<RuleConfig> get rules => List.unmodifiable(_rules.values);
+
+  List<CaseHistoryEvent> caseHistory(String caseId) => _releaseCases[caseId]
+          ?.history ??
+      const [];
+
+  List<int>? documentBytes(String documentId) => _documentBytes[documentId];
+
+  CaseStatus caseStatus(String value) => _caseStatusFromLabel(value);
+
+  void transition(
+    String caseId,
+    CaseStatus to,
+    String actor,
+    String reason,
+    {String? displayStatus}
+  ) {
+    final entry = _releaseCases.entries
+      .where((item) => item.value.caseId == caseId)
+      .firstOrNull;
+    final current = entry?.value;
+    if (current == null) {
+      throw InvalidTransitionException('Case $caseId was not found.');
+    }
+    final from = _caseStatusFromLabel(current.status);
+    if (from == to) return;
+    if (!(ALLOWED_TRANSITIONS[from] ?? const {}).contains(to)) {
+      throw InvalidTransitionException(
+        'Cannot transition ${current.status} to ${_caseStatusLabel(to)}.',
+      );
+    }
+    final nextLabel = displayStatus ?? _caseStatusLabel(to);
+    final eligibility = ReleaseEligibilityService.evaluate(
+      record: current,
+      verification: verificationForEligibility,
+      originalFdrExists: _demoFdrRecords.containsKey(current.originalFdrReference),
+    );
+    if (to == CaseStatus.readyForNoc && !eligibility.canAdvance) {
+      throw InvalidTransitionException(
+        'Case is not ready: ${eligibility.blockingReasons.join(' ')}',
+      );
+    }
+    final event = CaseHistoryEvent(
+      action: 'Status changed',
+      actor: actor,
+      at: _clock.now(),
+      remark: reason,
+      fromStatus: current.status,
+      toStatus: nextLabel,
+    );
+    _releaseCases[entry!.key] = current.copyWith(
+      status: nextLabel,
+      history: [...current.history, event],
+    );
+    appendAuditEntry(
+      action: 'Case status changed',
+      associatedId: caseId,
+      actorRole: actor,
+      payload: '${current.status} -> $nextLabel; $reason',
+    );
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.institution,
+      recipientId: current.originalInstitutionId,
+      title: 'Case status updated',
+      message: 'Case $caseId is now $nextLabel.',
+      category: NotificationCategory.request,
+      relatedId: caseId,
+      eventKey: 'case-status-$caseId-${to.name}-${event.at.microsecondsSinceEpoch}',
+    );
+    notifyListeners();
+  }
+
+  void updateRule(RuleConfig rule) {
+    _rules[rule.id] = rule;
+    appendAuditEntry(
+      action: 'Verification rule changed',
+      associatedId: rule.id,
+      actorRole: 'Demo Officer',
+      payload: '${rule.enabled ? 'enabled' : 'disabled'}; ${rule.severity.name}',
+    );
+    notifyListeners();
+  }
+
+  List<FdrDeadlineInfo> get deadlineItems =>
+      calculateFdrDeadlines(_dashboardSubmissions);
+
+  int runReminderScan({DateTime? today}) {
+    final scanDate = today ?? DateTime.now();
+    var created = 0;
+    for (final item in calculateFdrDeadlines(
+      _dashboardSubmissions,
+      today: scanDate,
+    )) {
+      if (item.status != MaturityStatus.critical &&
+          item.status != MaturityStatus.matured &&
+          item.status != MaturityStatus.expiringSoon) {
+        continue;
+      }
+      final cycle = '${scanDate.year}-${scanDate.month}-${scanDate.day}';
+      final key =
+          'deadline-${item.submission.submissionId}-${item.status.name}-$cycle';
+      if (_reminderKeys.add(key)) {
+        NotificationCenter.instance.add(
+          recipientRole: NotificationRecipientRole.officer,
+          title: '${item.status.label}: ${item.submission.reference}',
+          message:
+              '${item.submission.institution} requires maturity follow-up.',
+          category: NotificationCategory.reminder,
+          relatedId: item.submission.submissionId,
+          eventKey: key,
+        );
+        appendAuditEntry(
+          action: 'Deadline reminder generated',
+          associatedId: item.submission.submissionId,
+          actorRole: 'System',
+          payload: '${item.status.label}; cycle $cycle',
+        );
+        created++;
+      }
+    }
+    return created;
+  }
+
+  bool linkRenewal({
+    required String submissionId,
+    required String parentFdrReference,
+  }) {
+    final current = submissionById(submissionId);
+    if (current == null || current.reference == parentFdrReference) {
+      return false;
+    }
+    final parentExists = _dashboardSubmissions.any(
+      (item) => item.reference == parentFdrReference,
+    );
+    if (!parentExists) return false;
+    final record = _fdrRecordsBySubmissionId[submissionId];
+    if (record == null) return false;
+    _fdrRecordsBySubmissionId[submissionId] = record.copyWith(
+      parentFdrReference: parentFdrReference,
+    );
+    appendAuditEntry(
+      action: 'FDR renewal lineage linked',
+      associatedId: submissionId,
+      actorRole: 'Demo Officer',
+      payload: 'Parent FDR $parentFdrReference',
+    );
+    notifyListeners();
+    return true;
+  }
 
   FdrRecord? fdrRecordForSubmission(String submissionId) =>
       _fdrRecordsBySubmissionId[submissionId];
@@ -2166,6 +3458,24 @@ class DemoFdrPortalStore extends ChangeNotifier {
       associatedId: submissionId,
       actorRole: 'Institution User',
       payload: fdrNumber,
+    );
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.officer,
+      title: 'New FDR Submission',
+      message: '$institution submitted an FDR for verification.',
+      category: NotificationCategory.submission,
+      relatedId: submissionId,
+      eventKey: 'fdr-submitted-$submissionId',
+    );
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.institution,
+      recipientId: institutionId,
+      title: 'FDR Submission Received',
+      message:
+          'Your FDR submission has been successfully submitted for review.',
+      category: NotificationCategory.submission,
+      relatedId: submissionId,
+      eventKey: 'fdr-received-$submissionId',
     );
     notifyListeners();
     return submission;
@@ -2303,6 +3613,18 @@ class DemoFdrPortalStore extends ChangeNotifier {
       payload:
           '$caseType; FDR $fdrNumber; requested amount $requestedAmount; $reason',
     );
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.officer,
+      title: caseType == 'Merger'
+          ? 'Merger Request Pending'
+          : 'Refund Request Pending',
+      message: '$institution submitted a $caseType request for officer review.',
+      category: caseType == 'Merger'
+          ? NotificationCategory.merger
+          : NotificationCategory.request,
+      relatedId: caseId,
+      eventKey: 'case-submitted-$caseId',
+    );
     notifyListeners();
     return submission;
   }
@@ -2366,6 +3688,16 @@ class DemoFdrPortalStore extends ChangeNotifier {
       associatedId: submission.caseId ?? submissionId,
       actorRole: 'Demo Officer',
       payload: submission.reference,
+    );
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.institution,
+      recipientId: submission.institutionId,
+      title: 'FDR Returned for Correction',
+      message:
+          'Your FDR submission has been returned for correction. Open the submission to review the officer comments.',
+      category: NotificationCategory.correction,
+      relatedId: submissionId,
+      eventKey: 'fdr-rejected-$submissionId',
     );
     notifyListeners();
   }
@@ -2547,6 +3879,16 @@ class DemoFdrPortalStore extends ChangeNotifier {
       actorRole: 'Institution User',
       payload: submission.reference,
     );
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.officer,
+      title: 'Corrected Submission Resubmitted',
+      message:
+          '${submission.institution} resubmitted a corrected FDR for review.',
+      category: NotificationCategory.submission,
+      relatedId: submissionId,
+      eventKey:
+          'fdr-resubmitted-$submissionId-${DateTime.now().millisecondsSinceEpoch}',
+    );
     notifyListeners();
     return true;
   }
@@ -2586,6 +3928,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
     _selectedCaseType = 'Normal Release';
     _selectedReleaseCaseId = null;
     _auditEntries.clear();
+    _reminderKeys.clear();
+    _documentBytes.clear();
     _seedAudit();
     _dashboardSubmissions
       ..clear()
@@ -2853,6 +4197,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
           ? VerificationStatus.blocked
           : VerificationStatus.verified,
     );
+    _notifyVerificationResult();
     _syncNormalReleaseStatus();
     notifyListeners();
   }
@@ -2865,6 +4210,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
           ? VerificationStatus.blocked
           : VerificationStatus.verified,
     );
+    _notifyVerificationResult();
     _syncNormalReleaseStatus();
     notifyListeners();
   }
@@ -2934,6 +4280,26 @@ class DemoFdrPortalStore extends ChangeNotifier {
     }
   }
 
+  void _notifyVerificationResult() {
+    final submission = submissionById(_currentSubmission.submissionId);
+    if (submission == null) return;
+    final passed = _lastVerification.blocking == 0;
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.institution,
+      recipientId: submission.institutionId,
+      title: passed
+          ? 'FDR Verification Passed'
+          : 'FDR Verification Requires Attention',
+      message: passed
+          ? 'Your FDR verification passed. The submission is awaiting officer action.'
+          : 'Blocking discrepancies were found in your FDR submission. Open it to review the issues.',
+      category: NotificationCategory.verification,
+      relatedId: submission.submissionId,
+      eventKey:
+          'fdr-verification-${submission.submissionId}-${passed ? 'passed' : 'blocked'}',
+    );
+  }
+
   void _approveSubmissionForCase(ReleaseCase record) {
     final index = _dashboardSubmissions.indexWhere(
       (submission) => submission.submissionId == record.submissionId,
@@ -2968,6 +4334,16 @@ class DemoFdrPortalStore extends ChangeNotifier {
         submissionStatus: 'Approved — Demo',
       );
     }
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.institution,
+      recipientId: submission.institutionId,
+      title: 'FDR Submission Approved',
+      message:
+          'Your FDR submission has been approved. View the submission for details.',
+      category: NotificationCategory.approval,
+      relatedId: submission.submissionId,
+      eventKey: 'fdr-approved-${submission.submissionId}',
+    );
   }
 
   VerificationSummary runCurrentVerification() {
@@ -2977,7 +4353,10 @@ class DemoFdrPortalStore extends ChangeNotifier {
   }
 
   VerificationSummary _verifyFdrRecord(FdrRecord record) {
-    final initial = FdrVerificationService.runVerification(record);
+    final initial = FdrVerificationService.runVerification(
+      record,
+      rules: _rules.values,
+    );
     if (submissionById(record.submissionId)?.caseType != 'FDR Submission') {
       return initial;
     }
@@ -3254,12 +4633,75 @@ class DemoFdrPortalStore extends ChangeNotifier {
     final updated = currentCase.clearances[index].copyWith(
       status: newStatus,
       remark: remark ?? currentCase.clearances[index].remark,
+      remarkHistory: remark == null
+          ? currentCase.clearances[index].remarkHistory
+          : [
+              ...currentCase.clearances[index].remarkHistory,
+              ClearanceRemark(
+                text: remark,
+                timestamp: DateTime.now().toLocal().toString().substring(0, 16),
+                officerId: 'officer-123',
+              ),
+            ],
       lastUpdated: DateTime.now().toLocal().toString().substring(0, 16),
     );
     final clearances = [...currentCase.clearances];
     clearances[index] = updated;
     _saveReleaseCase(currentCase.copyWith(clearances: clearances));
+    if (newStatus == 'Clarification Requested') {
+      NotificationCenter.instance.add(
+        recipientRole: NotificationRecipientRole.institution,
+        recipientId: currentCase.originalInstitutionId,
+        title: 'Clarification Requested',
+        message:
+            '$clearanceName requested clarification for case ${currentCase.caseId}.',
+        category: NotificationCategory.clarification,
+        relatedId: currentCase.caseId,
+        eventKey:
+            'clarification-${currentCase.caseId}-$clearanceName-${remark ?? ''}',
+      );
+    }
     _syncNormalReleaseStatus();
+    notifyListeners();
+  }
+
+  void respondToClarification({
+    required String submissionId,
+    required String clearanceName,
+    required String response,
+  }) {
+    MapEntry<String, ReleaseCase>? caseEntry;
+    for (final entry in _releaseCases.entries) {
+      if (entry.value.submissionId == submissionId) {
+        caseEntry = entry;
+        break;
+      }
+    }
+    if (caseEntry == null || response.trim().isEmpty) return;
+    final record = caseEntry.value;
+    final clearanceIndex = record.clearances.indexWhere(
+      (item) => item.name == clearanceName,
+    );
+    if (clearanceIndex == -1) return;
+    final clearance = record.clearances[clearanceIndex];
+    final updatedClearance = clearance.copyWith(
+      response: response.trim(),
+      responseTimestamp: DateTime.now().toLocal().toString().substring(0, 16),
+      status: 'Response Submitted',
+    );
+    final clearances = [...record.clearances]
+      ..[clearanceIndex] = updatedClearance;
+    _releaseCases[caseEntry.key] = record.copyWith(clearances: clearances);
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.officer,
+      title: 'Clarification Response Received',
+      message:
+          '${record.institution} responded to $clearanceName for case ${record.caseId}.',
+      category: NotificationCategory.clarification,
+      relatedId: record.caseId,
+      eventKey:
+          'clarification-response-${record.caseId}-$clearanceName-${updatedClearance.responseTimestamp}',
+    );
     notifyListeners();
   }
 
@@ -3277,8 +4719,171 @@ class DemoFdrPortalStore extends ChangeNotifier {
         )
         .toList();
     _saveReleaseCase(currentCase.copyWith(checklist: checklist));
+    appendAuditEntry(
+      action: isPresent
+          ? 'Required document marked present'
+          : 'Required document marked missing',
+      associatedId: currentCase.caseId,
+      actorRole: 'Demo Officer',
+      payload: fileName,
+    );
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.institution,
+      recipientId: currentCase.originalInstitutionId,
+      title: isPresent ? 'Document Reviewed' : 'Document Requires Attention',
+      message: '$fileName status changed for case ${currentCase.caseId}.',
+      category: isPresent
+          ? NotificationCategory.verification
+          : NotificationCategory.reminder,
+      relatedId: currentCase.caseId,
+      eventKey:
+          'document-${currentCase.caseId}-$fileName-${isPresent ? 'present' : 'missing'}',
+    );
     _syncNormalReleaseStatus();
     notifyListeners();
+  }
+
+  bool replaceRequiredDocument({
+    required String caseId,
+    required String fileName,
+  }) {
+    String? mapKey;
+    ReleaseCase? currentCase;
+    for (final entry in _releaseCases.entries) {
+      if (entry.value.caseId == caseId) {
+        mapKey = entry.key;
+        currentCase = entry.value;
+        break;
+      }
+    }
+    if (mapKey == null || currentCase == null) return false;
+    var changed = false;
+    final checklist = currentCase.checklist.map((item) {
+      if (item.fileName != fileName) return item;
+      changed = true;
+      return item.copyWith(isPresent: true, status: 'Pending Review');
+    }).toList();
+    if (!changed) return false;
+    _releaseCases[mapKey] = currentCase.copyWith(checklist: checklist);
+    appendAuditEntry(
+      action: 'Required document replacement submitted',
+      associatedId: caseId,
+      actorRole: 'Institution User',
+      payload: fileName,
+    );
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.officer,
+      title: 'Replacement Document Submitted',
+      message:
+          '${currentCase.institution} submitted a replacement document for review.',
+      category: NotificationCategory.submission,
+      relatedId: caseId,
+      eventKey:
+          'document-replacement-$caseId-$fileName-${DateTime.now().millisecondsSinceEpoch}',
+    );
+    notifyListeners();
+    return true;
+  }
+
+  Future<String?> pickAndReplaceRequiredDocument({
+    required String caseId,
+    required String fileName,
+  }) async {
+    final result = await FilePicker.platform.pickFiles(
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png'],
+    );
+    if (result == null || result.files.isEmpty) return null;
+    final file = result.files.single;
+    final bytes = file.bytes;
+    final extension = (file.extension ?? '').toLowerCase();
+    if (bytes == null || bytes.length > 5 * 1024 * 1024) {
+      throw ArgumentError('Document must be available as bytes and no larger than 5 MB.');
+    }
+    if (!{'pdf', 'jpg', 'jpeg', 'png'}.contains(extension)) {
+      throw ArgumentError('Only PDF, JPG, JPEG, and PNG documents are supported.');
+    }
+    return uploadRequiredDocumentBytes(
+      caseId: caseId,
+      requiredFileName: fileName,
+      selectedFileName: file.name,
+      bytes: bytes,
+      mimeType: switch (extension) {
+        'pdf' => 'application/pdf',
+        'png' => 'image/png',
+        _ => 'image/jpeg',
+      },
+    );
+  }
+
+  String? uploadRequiredDocumentBytes({
+    required String caseId,
+    required String requiredFileName,
+    required String selectedFileName,
+    required List<int> bytes,
+    required String mimeType,
+  }) {
+    final currentCase = _releaseCases[caseId];
+    if (currentCase == null || bytes.length > 5 * 1024 * 1024) return null;
+    final index = currentCase.checklist.indexWhere(
+      (item) => item.fileName == requiredFileName,
+    );
+    if (index == -1) return null;
+    final record = _fdrRecordsBySubmissionId[currentCase.submissionId];
+    if (record == null) return null;
+    final previousVersions = record.supportedDocuments.where(
+      (document) => document.type == requiredFileName,
+    );
+    final version = previousVersions.isEmpty
+        ? 1
+        : previousVersions.map((document) => document.version).reduce((a, b) => a > b ? a : b) + 1;
+    final metadata = SupportedDocument(
+      id: '$caseId-$requiredFileName-v$version',
+      type: requiredFileName,
+      fileName: selectedFileName,
+      mimeType: mimeType,
+      sizeBytes: bytes.length,
+      uploadedAt: _clock.now(),
+      uploadedBy: 'Institution User',
+      version: version,
+      sha256: checksumForDocumentBytes(bytes)!,
+    );
+    final checklist = [...currentCase.checklist]
+      ..[index] = currentCase.checklist[index].copyWith(
+        isPresent: true,
+        status: 'Present — Uploaded',
+      );
+    final history = CaseHistoryEvent(
+      action: 'Document uploaded',
+      actor: 'Institution User',
+      at: _clock.now(),
+      remark: '$selectedFileName uploaded as version $version',
+    );
+    _fdrRecordsBySubmissionId[currentCase.submissionId] = record.copyWith(
+      supportedDocuments: [...record.supportedDocuments, metadata],
+    );
+    _documentBytes[metadata.id] = List<int>.unmodifiable(bytes);
+    _releaseCases[caseId] = currentCase.copyWith(
+      checklist: checklist,
+      history: [...currentCase.history, history],
+    );
+    appendAuditEntry(
+      action: 'Document uploaded',
+      associatedId: caseId,
+      actorRole: 'Institution User',
+      payload: '$selectedFileName; SHA-256 ${metadata.sha256}; version $version',
+    );
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.officer,
+      title: 'Replacement Document Submitted',
+      message: '$selectedFileName is ready for review.',
+      category: NotificationCategory.submission,
+      relatedId: caseId,
+      eventKey: 'document-upload-$caseId-${metadata.id}',
+    );
+    notifyListeners();
+    return metadata.sha256;
   }
 
   void updateReleaseCaseType(String caseType) {
@@ -3376,7 +4981,43 @@ class DemoFdrPortalStore extends ChangeNotifier {
 
   void _saveReleaseCase(ReleaseCase record) {
     final key = _selectedReleaseCaseId ?? _selectedCaseType;
-    _releaseCases[key] = record;
+    final current = _releaseCases[key];
+    if (current == null || current.status == record.status) {
+      if (current != null && current.status == record.status &&
+          record.history.length == current.history.length) {
+        _releaseCases[key] = record.copyWith(
+          history: [
+            ...record.history,
+            CaseHistoryEvent(
+              action: 'Case details updated',
+              actor: 'Demo Officer',
+              at: _clock.now(),
+              remark: 'Documents, clearances, or case amounts updated.',
+            ),
+          ],
+        );
+      } else {
+        _releaseCases[key] = record;
+      }
+      return;
+    }
+    transition(
+      record.caseId,
+      _caseStatusFromLabel(record.status),
+      'Demo Officer',
+      'Case workflow updated',
+      displayStatus: record.status,
+    );
+    _releaseCases[key] = _releaseCases[key]!.copyWith(
+      checklist: record.checklist,
+      clearances: record.clearances,
+      requestedReleaseAmount: record.requestedReleaseAmount,
+      partialReleaseReason: record.partialReleaseReason,
+      successorInstitution: record.successorInstitution,
+      successorInstitutionId: record.successorInstitutionId,
+      mergerReference: record.mergerReference,
+      effectiveDate: record.effectiveDate,
+    );
   }
 
   static String _computeHash(String value) {
@@ -3385,6 +5026,136 @@ class DemoFdrPortalStore extends ChangeNotifier {
     return digest;
   }
 }
+
+enum DocumentSource { fdrMaster, receipt, requestLetter, affidavit }
+
+enum ComparisonStatus { allMatch, partialMismatch, missing }
+
+class FieldComparison {
+  const FieldComparison({
+    required this.field,
+    required this.values,
+    required this.status,
+    required this.differingSources,
+    this.severity = VerificationIssueSeverity.passed,
+  });
+
+  final String field;
+  final Map<DocumentSource, String?> values;
+  final ComparisonStatus status;
+  final Set<DocumentSource> differingSources;
+  final VerificationIssueSeverity severity;
+}
+
+class SupportedDocument {
+  const SupportedDocument({
+    required this.id,
+    required this.type,
+    required this.fileName,
+    required this.mimeType,
+    required this.sizeBytes,
+    required this.uploadedAt,
+    required this.uploadedBy,
+    required this.version,
+    required this.sha256,
+    this.extractedFields = const {},
+  });
+
+  final String id;
+  final String type;
+  final String fileName;
+  final String mimeType;
+  final int sizeBytes;
+  final DateTime uploadedAt;
+  final String uploadedBy;
+  final int version;
+  final String sha256;
+  final Map<String, String> extractedFields;
+}
+
+enum DiscrepancyStatus { open, correctionSubmitted, resolved, waived, reopened }
+
+class DiscrepancyEvent {
+  const DiscrepancyEvent({
+    required this.actor,
+    required this.action,
+    required this.remark,
+    required this.at,
+    this.previousValue,
+    this.newValue,
+  });
+
+  final String actor;
+  final String action;
+  final String remark;
+  final DateTime at;
+  final String? previousValue;
+  final String? newValue;
+}
+
+class Discrepancy {
+  const Discrepancy({
+    required this.id,
+    required this.ruleId,
+    required this.field,
+    required this.severity,
+    required this.status,
+    required this.detectedAt,
+    this.history = const [],
+  });
+
+  final String id;
+  final String ruleId;
+  final String field;
+  final VerificationIssueSeverity severity;
+  final DiscrepancyStatus status;
+  final DateTime detectedAt;
+  final List<DiscrepancyEvent> history;
+}
+
+enum RuleSeverity { blocking, warning, off }
+
+class RuleConfig {
+  const RuleConfig({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.severity,
+    required this.enabled,
+    this.params = const {},
+  });
+
+  final String id;
+  final String name;
+  final String description;
+  final RuleSeverity severity;
+  final bool enabled;
+  final Map<String, num> params;
+
+  RuleConfig copyWith({
+    RuleSeverity? severity,
+    bool? enabled,
+    Map<String, num>? params,
+  }) => RuleConfig(
+    id: id,
+    name: name,
+    description: description,
+    severity: severity ?? this.severity,
+    enabled: enabled ?? this.enabled,
+    params: params ?? this.params,
+  );
+}
+
+List<RuleConfig> defaultRuleConfigs() => const [
+  RuleConfig(id: 'deposit-amount', name: 'Amount tolerance', description: 'Compare deposit values.', severity: RuleSeverity.blocking, enabled: true, params: {'tolerance': 0}),
+  RuleConfig(id: 'date-consistency', name: 'Date consistency', description: 'Maturity follows issue date.', severity: RuleSeverity.blocking, enabled: true),
+  RuleConfig(id: 'tenure-consistency', name: 'Tenure tolerance', description: 'Tenure matches the date interval.', severity: RuleSeverity.blocking, enabled: true, params: {'toleranceMonths': 0}),
+  RuleConfig(id: 'institution-name-mismatch', name: 'Institution name similarity', description: 'Compare institution names.', severity: RuleSeverity.blocking, enabled: true, params: {'threshold': 0.8}),
+  RuleConfig(id: 'trust-name-mismatch', name: 'Trust name similarity', description: 'Compare trust names.', severity: RuleSeverity.blocking, enabled: true, params: {'threshold': 0.8}),
+  RuleConfig(id: 'lien-information', name: 'Lien required', description: 'Require lien information.', severity: RuleSeverity.warning, enabled: true),
+  RuleConfig(id: 'maturity-warning', name: 'Maturity warning', description: 'Warn before maturity.', severity: RuleSeverity.warning, enabled: true, params: {'warningDays': 30}),
+  RuleConfig(id: 'duplicate-fdr', name: 'Duplicate FDR', description: 'Reject duplicate references.', severity: RuleSeverity.blocking, enabled: true),
+];
 
 class FdrRecord {
   const FdrRecord({
@@ -3402,6 +5173,10 @@ class FdrRecord {
     required this.lienInformation,
     required this.submissionStatus,
     required this.documents,
+    this.institutionNameOnDocuments,
+    this.parentFdrReference,
+    this.sourceValues = const {},
+    this.supportedDocuments = const [],
   });
 
   final String institution;
@@ -3418,6 +5193,10 @@ class FdrRecord {
   final String lienInformation;
   final String submissionStatus;
   final List<DemoDocument> documents;
+  final String? institutionNameOnDocuments;
+  final String? parentFdrReference;
+  final Map<DocumentSource, Map<String, String?>> sourceValues;
+  final List<SupportedDocument> supportedDocuments;
 
   FdrRecord copyWith({
     String? institution,
@@ -3434,6 +5213,10 @@ class FdrRecord {
     String? lienInformation,
     String? submissionStatus,
     List<DemoDocument>? documents,
+    String? institutionNameOnDocuments,
+    String? parentFdrReference,
+    Map<DocumentSource, Map<String, String?>>? sourceValues,
+    List<SupportedDocument>? supportedDocuments,
   }) => FdrRecord(
     institution: institution ?? this.institution,
     institutionId: institutionId ?? this.institutionId,
@@ -3449,6 +5232,11 @@ class FdrRecord {
     lienInformation: lienInformation ?? this.lienInformation,
     submissionStatus: submissionStatus ?? this.submissionStatus,
     documents: documents ?? this.documents,
+    institutionNameOnDocuments:
+        institutionNameOnDocuments ?? this.institutionNameOnDocuments,
+    parentFdrReference: parentFdrReference ?? this.parentFdrReference,
+    sourceValues: sourceValues ?? this.sourceValues,
+    supportedDocuments: supportedDocuments ?? this.supportedDocuments,
   );
 }
 
@@ -3485,6 +5273,10 @@ class VerificationIssue {
     required this.message,
     this.description = '',
     this.recommendedAction = '',
+    this.affectedField = '',
+    this.sourceValues = const {},
+    this.resolved = false,
+    this.detectedAt,
   });
 
   final String ruleId;
@@ -3492,6 +5284,10 @@ class VerificationIssue {
   final String message;
   final String description;
   final String recommendedAction;
+  final String affectedField;
+  final Map<String, String> sourceValues;
+  final bool resolved;
+  final DateTime? detectedAt;
 }
 
 enum VerificationIssueSeverity { blocking, warning, passed }
@@ -3503,6 +5299,7 @@ class VerificationSummary {
     required this.warnings,
     required this.statusText,
     required this.issues,
+    this.comparisonMatrix = const [],
   });
 
   final int totalChecks;
@@ -3510,7 +5307,312 @@ class VerificationSummary {
   final int warnings;
   final String statusText;
   final List<VerificationIssue> issues;
+  final List<FieldComparison> comparisonMatrix;
 }
+
+enum MaturityStatus { active, expiringSoon, critical, matured, invalid }
+
+extension MaturityStatusLabel on MaturityStatus {
+  String get label => switch (this) {
+    MaturityStatus.active => 'Active',
+    MaturityStatus.expiringSoon => 'Expiring Soon',
+    MaturityStatus.critical => 'Critical',
+    MaturityStatus.matured => 'Matured',
+    MaturityStatus.invalid => 'Review Date',
+  };
+}
+
+class FdrDeadlineInfo {
+  const FdrDeadlineInfo({
+    required this.submission,
+    required this.maturityDate,
+    required this.daysRemaining,
+    required this.status,
+    required this.nextAction,
+  });
+
+  final FdrSubmission submission;
+  final DateTime? maturityDate;
+  final int? daysRemaining;
+  final MaturityStatus status;
+  final String nextAction;
+}
+
+List<FdrDeadlineInfo> calculateFdrDeadlines(
+  Iterable<FdrSubmission> submissions, {
+  DateTime? today,
+  Map<String, String?> maturityDates = const {},
+}) {
+  final currentDate = DateTime(
+    (today ?? DateTime.now()).year,
+    (today ?? DateTime.now()).month,
+    (today ?? DateTime.now()).day,
+  );
+  final results = submissions.map((submission) {
+    final record = DemoFdrPortalStore.instance.fdrRecordForSubmission(
+      submission.submissionId,
+    );
+    final rawMaturity = maturityDates.containsKey(submission.submissionId)
+        ? maturityDates[submission.submissionId]
+        : record?.maturityDate;
+    final maturity = rawMaturity == null ? null : _parsePortalDate(rawMaturity);
+    if (maturity == null) {
+      return FdrDeadlineInfo(
+        submission: submission,
+        maturityDate: null,
+        daysRemaining: null,
+        status: MaturityStatus.invalid,
+        nextAction: 'Review maturity date',
+      );
+    }
+    final date = DateTime(maturity.year, maturity.month, maturity.day);
+    final days = date.difference(currentDate).inDays;
+    final status = days < 0
+        ? MaturityStatus.matured
+        : days <= 7
+        ? MaturityStatus.critical
+        : days <= 30
+        ? MaturityStatus.expiringSoon
+        : MaturityStatus.active;
+    return FdrDeadlineInfo(
+      submission: submission,
+      maturityDate: date,
+      daysRemaining: days,
+      status: status,
+      nextAction: status == MaturityStatus.matured
+          ? 'Review renewal or release'
+          : status == MaturityStatus.invalid
+          ? 'Review maturity date'
+          : 'Monitor maturity window',
+    );
+  }).toList();
+  results.sort((left, right) {
+    final leftDays = left.daysRemaining ?? 999999;
+    final rightDays = right.daysRemaining ?? 999999;
+    return leftDays.compareTo(rightDays);
+  });
+  return List.unmodifiable(results);
+}
+
+String _parsePortalDateLabel(DateTime date) =>
+    '${date.day.toString().padLeft(2, '0')} ${const ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][date.month - 1]} ${date.year}';
+
+DateTime? _parsePortalDate(String value) {
+  final iso = DateTime.tryParse(value);
+  if (iso != null) return iso;
+  final match = RegExp(
+    r'^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$',
+  ).firstMatch(value.trim());
+  if (match == null) return null;
+  const months = {
+    'january': 1,
+    'february': 2,
+    'march': 3,
+    'april': 4,
+    'may': 5,
+    'june': 6,
+    'july': 7,
+    'august': 8,
+    'september': 9,
+    'october': 10,
+    'november': 11,
+    'december': 12,
+  };
+  final month = months[match.group(2)!.toLowerCase()];
+  if (month == null) return null;
+  return DateTime.tryParse(
+    '${match.group(3)}-${month.toString().padLeft(2, '0')}-${match.group(1)!.padLeft(2, '0')}',
+  );
+}
+
+class InstitutionRiskAssessment {
+  const InstitutionRiskAssessment({
+    required this.category,
+    required this.score,
+    required this.reasons,
+  });
+
+  final String category;
+  final int score;
+  final List<String> reasons;
+}
+
+InstitutionRiskAssessment assessInstitutionRisk(
+  Iterable<FdrSubmission> submissions, {
+  DateTime? today,
+}) {
+  var score = 0;
+  final reasons = <String>[];
+  final records = submissions.toList();
+  final blocked = records
+      .where((item) => item.status == SubmissionStatus.blocked)
+      .length;
+  if (blocked > 0) {
+    score += blocked * 3;
+    reasons.add('$blocked blocking verification issue(s)');
+  }
+  final corrections = records
+      .where(
+        (item) =>
+            item.status == SubmissionStatus.rejected ||
+            item.status == SubmissionStatus.correctionRequested,
+      )
+      .length;
+  if (corrections > 0) {
+    score += corrections;
+    reasons.add('$corrections returned or rejected submission(s)');
+  }
+  final deadlines = calculateFdrDeadlines(records, today: today);
+  final urgent = deadlines
+      .where(
+        (item) =>
+            item.status == MaturityStatus.critical ||
+            item.status == MaturityStatus.matured,
+      )
+      .length;
+  if (urgent > 0) {
+    score += urgent * 2;
+    reasons.add('$urgent urgent maturity item(s)');
+  }
+  return InstitutionRiskAssessment(
+    category: score >= 5
+        ? 'High'
+        : score >= 2
+        ? 'Medium'
+        : 'Low',
+    score: score,
+    reasons: reasons.isEmpty
+        ? const ['No active risk factors found']
+        : List.unmodifiable(reasons),
+  );
+}
+
+class ActionQueueItem {
+  const ActionQueueItem({
+    required this.id,
+    required this.institution,
+    required this.reference,
+    required this.status,
+    required this.priority,
+    required this.reason,
+    required this.relatedSubmissionId,
+  });
+
+  final String id;
+  final String institution;
+  final String reference;
+  final String status;
+  final String priority;
+  final String reason;
+  final String relatedSubmissionId;
+}
+
+List<ActionQueueItem> buildOfficerActionQueue(
+  DemoFdrPortalStore store, {
+  DateTime? today,
+}) {
+  final items = <ActionQueueItem>[];
+  for (final submission in store.dashboardSubmissions) {
+    if (submission.status == SubmissionStatus.pendingReview ||
+        submission.status == SubmissionStatus.blocked ||
+        submission.status == SubmissionStatus.correctionRequested) {
+      final blocked =
+          submission.status == SubmissionStatus.blocked ||
+          submission.issues.isNotEmpty;
+      items.add(
+        ActionQueueItem(
+          id: 'submission-${submission.submissionId}',
+          institution: submission.institution,
+          reference: submission.reference,
+          status: submission.status.label,
+          priority: blocked ? 'High' : 'Routine',
+          reason: blocked
+              ? 'Review blocking discrepancies'
+              : 'Awaiting officer review',
+          relatedSubmissionId: submission.submissionId,
+        ),
+      );
+    }
+  }
+  for (final deadline in calculateFdrDeadlines(
+    store.dashboardSubmissions,
+    today: today,
+  )) {
+    if (deadline.status == MaturityStatus.critical ||
+        deadline.status == MaturityStatus.matured) {
+      items.add(
+        ActionQueueItem(
+          id: 'deadline-${deadline.submission.submissionId}',
+          institution: deadline.submission.institution,
+          reference: deadline.submission.reference,
+          status: deadline.status.label,
+          priority: 'High',
+          reason: deadline.nextAction,
+          relatedSubmissionId: deadline.submission.submissionId,
+        ),
+      );
+    }
+  }
+  for (final caseRecord in store.releaseCases) {
+    final pendingCells = caseRecord.clearances
+        .where((item) => item.status != 'Cleared')
+        .length;
+    if (pendingCells > 0 && caseRecord.status != 'NOC Issued — Demo') {
+      items.add(
+        ActionQueueItem(
+          id: 'case-${caseRecord.caseId}',
+          institution: caseRecord.institution,
+          reference: caseRecord.caseId,
+          status: caseRecord.status,
+          priority: 'High',
+          reason: '$pendingCells clearance(s) require attention',
+          relatedSubmissionId: caseRecord.submissionId,
+        ),
+      );
+    }
+  }
+  final unique = <String, ActionQueueItem>{
+    for (final item in items) item.id: item,
+  };
+  final result = unique.values.toList();
+  result.sort((left, right) {
+    final priority = {'High': 0, 'Routine': 1};
+    return (priority[left.priority] ?? 2).compareTo(
+      priority[right.priority] ?? 2,
+    );
+  });
+  return List.unmodifiable(result);
+}
+
+String buildSubmissionsCsv(Iterable<FdrSubmission> submissions) {
+  String escape(String value) => '"${value.replaceAll('"', '""')}"';
+  final rows = <String>[
+    'Submission ID,Institution ID,Institution,FDR Reference,Case Type,Status,Amount,Submitted,Issues,Maturity Date',
+  ];
+  for (final item in submissions) {
+    final record = DemoFdrPortalStore.instance.fdrRecordForSubmission(
+      item.submissionId,
+    );
+    rows.add(
+      [
+        item.submissionId,
+        item.institutionId,
+        item.institution,
+        item.reference,
+        item.caseType,
+        item.status.label,
+        item.amount,
+        item.submittedOn,
+        item.issues.join('; '),
+        record?.maturityDate ?? '',
+      ].map(escape).join(','),
+    );
+  }
+  return rows.join('\r\n');
+}
+
+String? checksumForDocumentBytes(List<int>? bytes) =>
+    bytes == null ? null : sha256.convert(bytes).toString();
 
 class ReleaseCase {
   const ReleaseCase({
@@ -3531,6 +5633,7 @@ class ReleaseCase {
     this.successorInstitutionId = '',
     this.mergerReference = '',
     this.effectiveDate = '',
+    this.history = const [],
   });
 
   final String caseId;
@@ -3550,6 +5653,7 @@ class ReleaseCase {
   final String successorInstitutionId;
   final String mergerReference;
   final String effectiveDate;
+  final List<CaseHistoryEvent> history;
   int get retainedBalance => originalFdrAmount - requestedReleaseAmount;
 
   ReleaseCase copyWith({
@@ -3570,6 +5674,7 @@ class ReleaseCase {
     String? successorInstitutionId,
     String? mergerReference,
     String? effectiveDate,
+    List<CaseHistoryEvent>? history,
   }) => ReleaseCase(
     caseId: caseId ?? this.caseId,
     submissionId: submissionId ?? this.submissionId,
@@ -3590,7 +5695,113 @@ class ReleaseCase {
         successorInstitutionId ?? this.successorInstitutionId,
     mergerReference: mergerReference ?? this.mergerReference,
     effectiveDate: effectiveDate ?? this.effectiveDate,
+    history: history ?? this.history,
   );
+}
+
+enum CaseStatus {
+  draft,
+  submitted,
+  underReview,
+  clarificationRequested,
+  clearancePending,
+  readyForNoc,
+  nocIssued,
+  rejected,
+  closed,
+  approved,
+}
+
+CaseStatus _caseStatusFromLabel(String label) => switch (label) {
+  'Draft' => CaseStatus.draft,
+  'Submitted' || 'Pending Review' => CaseStatus.submitted,
+  'Under Review' || 'Awaiting Clearances' || 'Blocked — FDR Verification' =>
+    CaseStatus.underReview,
+  'Clarification Requested' => CaseStatus.clarificationRequested,
+  'Clearance Pending' || 'Awaiting Required Documents' =>
+    CaseStatus.clearancePending,
+  'Ready for Final NOC' => CaseStatus.readyForNoc,
+  'NOC Issued — Demo' => CaseStatus.nocIssued,
+  'Rejected' || 'Returned for Correction' => CaseStatus.rejected,
+  'Closed' => CaseStatus.closed,
+  'Approved' ||
+  'FDR Approved — Demo' ||
+  'Partial Release Approved — Demo' ||
+  'Merger Approved — Demo' => CaseStatus.approved,
+  _ => CaseStatus.underReview,
+};
+
+String _caseStatusLabel(CaseStatus status) => switch (status) {
+  CaseStatus.draft => 'Draft',
+  CaseStatus.submitted => 'Submitted',
+  CaseStatus.underReview => 'Under Review',
+  CaseStatus.clarificationRequested => 'Clarification Requested',
+  CaseStatus.clearancePending => 'Clearance Pending',
+  CaseStatus.readyForNoc => 'Ready for Final NOC',
+  CaseStatus.nocIssued => 'NOC Issued — Demo',
+  CaseStatus.rejected => 'Rejected',
+  CaseStatus.closed => 'Closed',
+  CaseStatus.approved => 'Approved',
+};
+
+const Map<CaseStatus, Set<CaseStatus>> ALLOWED_TRANSITIONS = {
+  CaseStatus.draft: {CaseStatus.submitted, CaseStatus.rejected},
+  CaseStatus.submitted: {
+    CaseStatus.underReview,
+    CaseStatus.clearancePending,
+    CaseStatus.approved,
+    CaseStatus.rejected,
+  },
+  CaseStatus.underReview: {
+    CaseStatus.clarificationRequested,
+    CaseStatus.clearancePending,
+    CaseStatus.rejected,
+  },
+  CaseStatus.clarificationRequested: {
+    CaseStatus.underReview,
+    CaseStatus.rejected,
+  },
+  CaseStatus.clearancePending: {
+    CaseStatus.readyForNoc,
+    CaseStatus.clarificationRequested,
+    CaseStatus.rejected,
+  },
+  CaseStatus.readyForNoc: {
+    CaseStatus.nocIssued,
+    CaseStatus.approved,
+    CaseStatus.rejected,
+  },
+  CaseStatus.nocIssued: {CaseStatus.approved, CaseStatus.closed},
+  CaseStatus.approved: {CaseStatus.closed},
+  CaseStatus.rejected: {CaseStatus.submitted, CaseStatus.closed},
+  CaseStatus.closed: <CaseStatus>{},
+};
+
+class InvalidTransitionException implements Exception {
+  InvalidTransitionException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'InvalidTransitionException: $message';
+}
+
+class CaseHistoryEvent {
+  const CaseHistoryEvent({
+    required this.action,
+    required this.actor,
+    required this.at,
+    required this.remark,
+    this.fromStatus,
+    this.toStatus,
+  });
+
+  final String action;
+  final String actor;
+  final DateTime at;
+  final String remark;
+  final String? fromStatus;
+  final String? toStatus;
 }
 
 class DemoChecklistItem {
@@ -3628,6 +5839,9 @@ class ClearanceState {
     required this.remark,
     required this.actionRequired,
     this.lastUpdated,
+    this.remarkHistory = const [],
+    this.response,
+    this.responseTimestamp,
   });
 
   final String name;
@@ -3635,6 +5849,9 @@ class ClearanceState {
   final String remark;
   final String actionRequired;
   final String? lastUpdated;
+  final List<ClearanceRemark> remarkHistory;
+  final String? response;
+  final String? responseTimestamp;
 
   ClearanceState copyWith({
     String? name,
@@ -3642,13 +5859,31 @@ class ClearanceState {
     String? remark,
     String? actionRequired,
     String? lastUpdated,
+    List<ClearanceRemark>? remarkHistory,
+    String? response,
+    String? responseTimestamp,
   }) => ClearanceState(
     name: name ?? this.name,
     status: status ?? this.status,
     remark: remark ?? this.remark,
     actionRequired: actionRequired ?? this.actionRequired,
     lastUpdated: lastUpdated ?? this.lastUpdated,
+    remarkHistory: remarkHistory ?? this.remarkHistory,
+    response: response ?? this.response,
+    responseTimestamp: responseTimestamp ?? this.responseTimestamp,
   );
+}
+
+class ClearanceRemark {
+  const ClearanceRemark({
+    required this.text,
+    required this.timestamp,
+    required this.officerId,
+  });
+
+  final String text;
+  final String timestamp;
+  final String officerId;
 }
 
 class AuditEntry {
@@ -3745,54 +5980,215 @@ class FdrVerificationService {
     ),
   };
 
-  static VerificationSummary runVerification(FdrRecord record) {
+  static VerificationSummary runVerification(
+    FdrRecord record, {
+    Clock clock = const SystemClock(),
+    Iterable<RuleConfig>? rules,
+  }) {
+    final now = clock.now();
+    final configuredRules = {
+      for (final rule in rules ?? defaultRuleConfigs()) rule.id: rule,
+    };
+    bool enabled(String id) => configuredRules[id]?.enabled ?? true;
+    VerificationIssueSeverity severityFor(
+      String id,
+      VerificationIssueSeverity fallback,
+    ) {
+      final configured = configuredRules[id];
+      if (configured?.severity == RuleSeverity.off) {
+        return VerificationIssueSeverity.passed;
+      }
+      return switch (configured?.severity) {
+        RuleSeverity.blocking => VerificationIssueSeverity.blocking,
+        RuleSeverity.warning => VerificationIssueSeverity.warning,
+        _ => fallback,
+      };
+    }
     final issues = <VerificationIssue>[];
+    final comparisonMatrix = _comparisonMatrix(record);
 
     final amountDifference =
         (record.declaredDepositAmount - record.receiptAmount).abs();
-    if (record.declaredDepositAmount != record.receiptAmount) {
+    if (enabled('deposit-amount') &&
+      (record.declaredDepositAmount - record.receiptAmount).abs() >
+        (configuredRules['deposit-amount']?.params['tolerance'] ?? 0)) {
       issues.add(
         VerificationIssue(
           ruleId: 'deposit-amount',
-          severity: VerificationIssueSeverity.blocking,
+          severity: severityFor('deposit-amount', VerificationIssueSeverity.blocking),
           message:
               'Declared deposit amount does not match the receipt amount. Difference: ₹${_formatCurrency(amountDifference)}.',
           description:
               'The institution-declared deposit amount differs from the receipt amount recorded for the FDR.',
           recommendedAction:
               'Review the declared and receipt values side-by-side and correct the disputed amount before release approval.',
+          affectedField: 'declaredDepositAmount',
+          sourceValues: {
+            'declared': '${record.declaredDepositAmount}',
+            'receipt': '${record.receiptAmount}',
+          },
+          detectedAt: now,
         ),
       );
     }
 
-    if (record.lienInformation.trim().isEmpty ||
-        record.lienInformation.toLowerCase() == 'not provided') {
+    if (enabled('lien-information') &&
+        (record.lienInformation.trim().isEmpty ||
+            record.lienInformation.toLowerCase() == 'not provided')) {
       issues.add(
-        const VerificationIssue(
+        VerificationIssue(
           ruleId: 'lien-information',
-          severity: VerificationIssueSeverity.warning,
+          severity: severityFor('lien-information', VerificationIssueSeverity.warning),
           message: 'Lien information requires review.',
           description:
               'Lien information is missing or marked as not provided for this FDR.',
           recommendedAction:
               'Confirm whether a lien exists and update the record before final approval.',
+          affectedField: 'lienInformation',
+          detectedAt: now,
         ),
       );
     }
 
     final duplicateRecord = _duplicateRegistry[record.fdrNumber];
-    if (duplicateRecord != null &&
+    if (enabled('duplicate-fdr') && duplicateRecord != null &&
         duplicateRecord.institution != record.institution) {
       issues.add(
         VerificationIssue(
           ruleId: 'duplicate-fdr',
-          severity: VerificationIssueSeverity.blocking,
+          severity: severityFor('duplicate-fdr', VerificationIssueSeverity.blocking),
           message:
               'This FDR number already belongs to ${duplicateRecord.institution} under record ${duplicateRecord.fdrReference}.',
           description:
               'The FDR reference clashes with a different institution in the demo dataset.',
           recommendedAction:
               'Correct the FDR reference to a unique value or resolve the duplicate record before release approval.',
+          affectedField: 'fdrNumber',
+          sourceValues: {'existingInstitution': duplicateRecord.institution},
+          detectedAt: now,
+        ),
+      );
+    }
+
+    final issueDate = _parsePortalDate(record.issueDate);
+    final maturityDate = _parsePortalDate(record.maturityDate);
+    if (issueDate == null || maturityDate == null) {
+      if (enabled('date-consistency')) {
+        issues.add(
+          VerificationIssue(
+            ruleId: 'date-consistency',
+            severity: VerificationIssueSeverity.warning,
+            message: 'Issue and maturity dates are incomplete or inconsistent.',
+            description:
+                'The maturity date must be present and after the issue date.',
+            recommendedAction: 'Correct the issue and maturity dates.',
+            affectedField: 'maturityDate',
+            detectedAt: now,
+          ),
+        );
+      }
+    } else if (enabled('date-consistency') &&
+      !maturityDate.isAfter(issueDate)) {
+      issues.add(
+        VerificationIssue(
+          ruleId: 'date-consistency',
+          severity: severityFor('date-consistency', VerificationIssueSeverity.blocking),
+          message: 'Issue and maturity dates are incomplete or inconsistent.',
+          description: 'The maturity date must be after the issue date.',
+          recommendedAction: 'Correct the issue and maturity dates.',
+          affectedField: 'maturityDate',
+          detectedAt: now,
+        ),
+      );
+    } else {
+      final months =
+          (maturityDate.year - issueDate.year) * 12 +
+          maturityDate.month -
+          issueDate.month -
+          (maturityDate.day < issueDate.day ? 1 : 0);
+        if (enabled('tenure-consistency') &&
+          record.declaredTenureMonths > 0 &&
+          (record.declaredTenureMonths - months).abs() >
+            (configuredRules['tenure-consistency']?.params['toleranceMonths'] ?? 0)) {
+        issues.add(
+          VerificationIssue(
+            ruleId: 'tenure-consistency',
+            severity: severityFor('tenure-consistency', VerificationIssueSeverity.blocking),
+            message:
+                'Declared tenure does not match the issue and maturity dates.',
+            recommendedAction: 'Correct the declared tenure or maturity date.',
+            affectedField: 'declaredTenureMonths',
+            sourceValues: {
+              'declared': '${record.declaredTenureMonths}',
+              'calculated': '$months',
+            },
+            detectedAt: now,
+          ),
+        );
+      }
+      if (enabled('maturity-warning') && maturityDate.isBefore(now) &&
+          record.parentFdrReference == null) {
+        issues.add(
+          VerificationIssue(
+            ruleId: 'matured-without-renewal',
+            severity: VerificationIssueSeverity.warning,
+            message:
+                'This FDR is matured and has no recorded renewal relationship.',
+            recommendedAction:
+                'Record a renewal or open the appropriate release case.',
+            affectedField: 'parentFdrReference',
+            detectedAt: now,
+          ),
+        );
+      }
+    }
+    if (enabled('institution-name-mismatch') && record.institutionNameOnDocuments != null &&
+        record.institutionNameOnDocuments!.trim().isNotEmpty &&
+        record.institutionNameOnDocuments!.trim().toLowerCase() !=
+            record.institution.trim().toLowerCase()) {
+      issues.add(
+        VerificationIssue(
+          ruleId: 'institution-name-mismatch',
+          severity: severityFor('institution-name-mismatch', VerificationIssueSeverity.blocking),
+          message:
+              'The institution name in supporting data does not match the registry.',
+          recommendedAction:
+              'Correct the institution name or supporting document.',
+          affectedField: 'institutionNameOnDocuments',
+          sourceValues: {
+            'registry': record.institution,
+            'document': record.institutionNameOnDocuments!,
+          },
+          detectedAt: now,
+        ),
+      );
+    }
+
+    final trustValues = record.sourceValues.isEmpty
+      ? null
+      : comparisonMatrix.where((item) => item.field == 'trustName').firstOrNull;
+    final trustThreshold =
+        configuredRules['trust-name-mismatch']?.params['threshold'] ?? 0.8;
+    final trustNames = trustValues?.values.values
+        .whereType<String>()
+        .where((value) => value.trim().isNotEmpty)
+        .toList();
+    if (enabled('trust-name-mismatch') &&
+        trustNames != null &&
+        trustNames.length > 1 &&
+        _similarity(trustNames.first, trustNames.last) < trustThreshold) {
+      issues.add(
+        VerificationIssue(
+          ruleId: 'trust-name-mismatch',
+          severity: severityFor('trust-name-mismatch', VerificationIssueSeverity.blocking),
+          message: 'The trust name differs across supporting sources.',
+          recommendedAction: 'Correct the trust name or supporting document.',
+          affectedField: 'trustName',
+          sourceValues: {
+            for (final entry in trustValues!.values.entries)
+              entry.key.name: entry.value ?? '',
+          },
+          detectedAt: now,
         ),
       );
     }
@@ -3812,9 +6208,114 @@ class FdrVerificationService {
           ? 'PASSED — No Blocking Discrepancies'
           : 'BLOCKED — $blocking Blocking Discrepancies',
       issues: issues,
+      comparisonMatrix: comparisonMatrix,
     );
 
     return summary;
+  }
+
+  static List<FieldComparison> _comparisonMatrix(FdrRecord record) {
+    final values = record.sourceValues.isEmpty
+        ? <DocumentSource, Map<String, String?>>{
+            DocumentSource.fdrMaster: {
+              'institutionName': record.institution,
+              'trustName': record.institution,
+              'fdrNumber': record.fdrNumber,
+              'bank': record.bank,
+              'depositAmount': '${record.declaredDepositAmount}',
+              'issueDate': record.issueDate,
+              'maturityDate': record.maturityDate,
+              'tenureMonths': '${record.declaredTenureMonths}',
+              'lienInfo': record.lienInformation,
+            },
+            DocumentSource.receipt: {
+              'institutionName': record.institutionNameOnDocuments ?? record.institution,
+              'trustName': record.institutionNameOnDocuments ?? record.institution,
+              'fdrNumber': record.fdrNumber,
+              'bank': record.bank,
+              'depositAmount': '${record.receiptAmount}',
+              'issueDate': record.issueDate,
+              'maturityDate': record.maturityDate,
+              'tenureMonths': '${record.enteredTenureMonths}',
+              'lienInfo': record.lienInformation,
+            },
+            DocumentSource.requestLetter: {},
+            DocumentSource.affidavit: {},
+          }
+        : record.sourceValues;
+    const fields = [
+      'institutionName',
+      'trustName',
+      'fdrNumber',
+      'bank',
+      'depositAmount',
+      'issueDate',
+      'maturityDate',
+      'tenureMonths',
+      'lienInfo',
+    ];
+    return [
+      for (final field in fields)
+        _compareField(field, values),
+    ];
+  }
+
+  static FieldComparison _compareField(
+    String field,
+    Map<DocumentSource, Map<String, String?>> values,
+  ) {
+    final row = <DocumentSource, String?>{
+      for (final source in DocumentSource.values) source: values[source]?[field],
+    };
+    final present = row.values.where((value) => value?.trim().isNotEmpty ?? false).toSet();
+    final differingSources = <DocumentSource>{};
+    if (present.length > 1) {
+      final first = present.first;
+      for (final entry in row.entries) {
+        if (entry.value != null && entry.value!.trim().isNotEmpty && entry.value != first) {
+          differingSources.add(entry.key);
+        }
+      }
+    }
+    return FieldComparison(
+      field: field,
+      values: row,
+      status: present.isEmpty
+          ? ComparisonStatus.missing
+          : present.length > 1
+          ? ComparisonStatus.partialMismatch
+          : row.values.any((value) => value == null || value.trim().isEmpty)
+          ? ComparisonStatus.missing
+          : ComparisonStatus.allMatch,
+      differingSources: differingSources,
+    );
+  }
+
+  static String _normalizedName(String value) => value
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9 ]'), ' ')
+      .replaceAll(RegExp(r'\b(trust|society|educational|education)\b'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  static double _similarity(String left, String right) {
+    final a = _normalizedName(left);
+    final b = _normalizedName(right);
+    if (a == b) return 1;
+    if (a.isEmpty || b.isEmpty) return 0;
+    final distance = List<int>.generate(b.length + 1, (index) => index);
+    for (var row = 1; row <= a.length; row++) {
+      var diagonal = distance[0];
+      distance[0] = row;
+      for (var column = 1; column <= b.length; column++) {
+        final above = distance[column];
+        distance[column] = a[row - 1] == b[column - 1]
+            ? diagonal
+            : 1 + [above, distance[column - 1], diagonal].reduce((x, y) => x < y ? x : y);
+        diagonal = above;
+      }
+    }
+    return 1 - distance[b.length] / a.length.clamp(b.length, a.length);
   }
 }
 
@@ -4155,114 +6656,114 @@ class _FdrVerificationDetailPageState
     return OfficerPortalShell(
       title: 'FDR Verification',
       body: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-          children: [
-            const _DemoNotice(),
-            const SizedBox(height: 14),
-            _SectionCard(
-              title: 'Institution Details',
-              rows: {
-                'Institution': record.institution,
-                'Institution ID': record.institutionId,
-                'Submission ID': record.submissionId,
-              },
-            ),
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+        children: [
+          const _DemoNotice(),
+          const SizedBox(height: 14),
+          _SectionCard(
+            title: 'Institution Details',
+            rows: {
+              'Institution': record.institution,
+              'Institution ID': record.institutionId,
+              'Submission ID': record.submissionId,
+            },
+          ),
+          const SizedBox(height: 12),
+          _SectionCard(
+            title: 'FDR Master Details',
+            rows: {
+              'Bank': record.bank,
+              'FDR number': record.fdrNumber,
+              'Declared deposit amount':
+                  '₹${_formatCurrency(record.declaredDepositAmount)}',
+              'Receipt amount': '₹${_formatCurrency(record.receiptAmount)}',
+              'Issue date': record.issueDate,
+              'Maturity date': record.maturityDate,
+              'Declared tenure': '${record.declaredTenureMonths} months',
+              'Entered tenure': '${record.enteredTenureMonths} months',
+              'Lien information': record.lienInformation,
+              'Submission status': record.submissionStatus,
+            },
+          ),
+          if (submission != null &&
+              submission.caseType != 'FDR Submission') ...[
             const SizedBox(height: 12),
             _SectionCard(
-              title: 'FDR Master Details',
+              title: 'Institution Request Details',
               rows: {
-                'Bank': record.bank,
-                'FDR number': record.fdrNumber,
-                'Declared deposit amount':
-                    '₹${_formatCurrency(record.declaredDepositAmount)}',
-                'Receipt amount': '₹${_formatCurrency(record.receiptAmount)}',
-                'Issue date': record.issueDate,
-                'Maturity date': record.maturityDate,
-                'Declared tenure': '${record.declaredTenureMonths} months',
-                'Entered tenure': '${record.enteredTenureMonths} months',
-                'Lien information': record.lienInformation,
-                'Submission status': record.submissionStatus,
+                'Case ID': submission.caseId ?? 'Not assigned',
+                'Case type': submission.caseType,
+                if (submission.requestedAmount != null)
+                  'Requested amount':
+                      '₹${_formatCurrency(submission.requestedAmount!)}',
+                if (submission.retainedBalance != null)
+                  'Retained balance':
+                      '₹${_formatCurrency(submission.retainedBalance!)}',
+                if (submission.requestReason != null)
+                  'Reason': submission.requestReason!,
               },
-            ),
-            if (submission != null &&
-                submission.caseType != 'FDR Submission') ...[
-              const SizedBox(height: 12),
-              _SectionCard(
-                title: 'Institution Request Details',
-                rows: {
-                  'Case ID': submission.caseId ?? 'Not assigned',
-                  'Case type': submission.caseType,
-                  if (submission.requestedAmount != null)
-                    'Requested amount':
-                        '₹${_formatCurrency(submission.requestedAmount!)}',
-                  if (submission.retainedBalance != null)
-                    'Retained balance':
-                        '₹${_formatCurrency(submission.retainedBalance!)}',
-                  if (submission.requestReason != null)
-                    'Reason': submission.requestReason!,
-                },
-              ),
-            ],
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                color: Colors.white,
-                border: Border.all(color: _line),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Submitted Documents',
-                    key: ValueKey('submitted_documents_title'),
-                    style: TextStyle(
-                      color: _ink,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  if (record.documents.isEmpty)
-                    const Text(
-                      'No documents available in demo mode.',
-                      style: TextStyle(color: _muted, fontSize: 11),
-                    )
-                  else
-                    for (final document in record.documents) ...[
-                      _DocumentListItem(document: document),
-                      if (document != record.documents.last)
-                        const Divider(height: 16, color: _line),
-                    ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            SizedBox(
-              height: 48,
-              child: FilledButton.icon(
-                onPressed: _isRunning ? null : _runVerification,
-                icon: _isRunning
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.play_arrow_rounded),
-                label: Text(
-                  _isRunning ? 'Running Verification...' : 'Run Verification',
-                ),
-                style: FilledButton.styleFrom(
-                  backgroundColor: _orange,
-                  minimumSize: const Size.fromHeight(48),
-                ),
-              ),
             ),
           ],
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              color: Colors.white,
+              border: Border.all(color: _line),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Submitted Documents',
+                  key: ValueKey('submitted_documents_title'),
+                  style: TextStyle(
+                    color: _ink,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (record.documents.isEmpty)
+                  const Text(
+                    'No documents available.',
+                    style: TextStyle(color: _muted, fontSize: 11),
+                  )
+                else
+                  for (final document in record.documents) ...[
+                    _DocumentListItem(document: document),
+                    if (document != record.documents.last)
+                      const Divider(height: 16, color: _line),
+                  ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 48,
+            child: FilledButton.icon(
+              onPressed: _isRunning ? null : _runVerification,
+              icon: _isRunning
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.play_arrow_rounded),
+              label: Text(
+                _isRunning ? 'Running Verification...' : 'Run Verification',
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: _orange,
+                minimumSize: const Size.fromHeight(48),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -4290,336 +6791,321 @@ class _VerificationResultsPageState extends State<_VerificationResultsPage> {
     return OfficerPortalShell(
       title: 'Verification Results',
       body: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
-          children: [
-            const _DemoNotice(),
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
+        children: [
+          const _DemoNotice(),
+          const SizedBox(height: 12),
+          if (widget.correctionSaved) ...[
+            const _InlineNotice(
+              message:
+                  'Corrected FDR details were saved. Verification has not been rerun; run it below to refresh discrepancies.',
+              color: Color(0xFFFFF7ED),
+              textColor: Color(0xFF9A3412),
+              icon: Icons.save_outlined,
+            ),
             const SizedBox(height: 12),
-            if (widget.correctionSaved) ...[
-              const _InlineNotice(
-                message:
-                    'Corrected FDR details were saved. Verification has not been rerun; run it below to refresh discrepancies.',
-                color: Color(0xFFFFF7ED),
-                textColor: Color(0xFF9A3412),
-                icon: Icons.save_outlined,
-              ),
-              const SizedBox(height: 12),
-            ],
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: _line),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          summary.statusText,
-                          style: TextStyle(
-                            color: isBlocked
-                                ? const Color(0xFFB91C1C)
-                                : const Color(0xFF15803D),
-                            fontWeight: FontWeight.w800,
-                            fontSize: 18,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _SummaryMetric(label: 'Case ID', value: releaseCase.caseId),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _SummaryMetric(
-                          label: 'Total checks',
-                          value: store.verificationCurrent
-                              ? summary.totalChecks.toString()
-                              : '—',
-                        ),
-                      ),
-                      Expanded(
-                        child: _SummaryMetric(
-                          label: 'Blocking',
-                          value: store.verificationCurrent
-                              ? summary.blocking.toString()
-                              : '—',
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _SummaryMetric(
-                          label: 'Warnings',
-                          value: store.verificationCurrent
-                              ? summary.warnings.toString()
-                              : '—',
-                        ),
-                      ),
-                      Expanded(
-                        child: _SummaryMetric(
-                          label: 'Status',
-                          value: !store.verificationCurrent
-                              ? 'Not run'
-                              : isBlocked
-                              ? 'Blocked'
-                              : 'Passed',
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+          ],
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: _line),
             ),
-            const SizedBox(height: 16),
-            ...summary.issues.map(
-              (issue) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _IssueCard(issue: issue),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                color: Colors.white,
-                border: Border.all(color: _line),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Side-by-Side Comparison',
-                    style: TextStyle(
-                      color: _ink,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        summary.statusText,
+                        style: TextStyle(
+                          color: isBlocked
+                              ? const Color(0xFFB91C1C)
+                              : const Color(0xFF15803D),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 9),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final stacked = constraints.maxWidth < 560;
-                      final columns = [
-                        _ComparisonColumn(
-                          title: 'Institution-Entered Values',
-                          entries: [
-                            ('Institution', record.institution),
-                            ('FDR number', record.fdrNumber),
-                            (
-                              'Deposit amount',
-                              '₹${_formatCurrency(record.declaredDepositAmount)}',
-                            ),
-                            ('Lien information', record.lienInformation),
-                          ],
-                        ),
-                        _ComparisonColumn(
-                          title: 'Receipt Values',
-                          entries: [
-                            ('FDR number', record.fdrNumber),
-                            (
-                              'Deposit amount',
-                              '₹${_formatCurrency(record.receiptAmount)}',
-                            ),
-                            ('Lien information', record.lienInformation),
-                          ],
-                        ),
-                        _ComparisonColumn(
-                          title: 'Declared Values',
-                          entries: [
-                            ('Institution', 'Example Institute of Technology'),
-                            ('FDR number', record.fdrNumber),
-                            (
-                              'Deposit amount',
-                              '₹${_formatCurrency(record.declaredDepositAmount)}',
-                            ),
-                            ('Lien information', record.lienInformation),
-                          ],
-                        ),
-                      ];
-
-                      if (stacked) {
-                        return Column(
-                          children: [
-                            for (final column in columns) ...[
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: column,
-                              ),
-                            ],
-                          ],
-                        );
-                      }
-
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          for (final column in columns)
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: column,
-                              ),
-                            ),
-                        ],
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            if (!isBlocked)
-              FilledButton.icon(
-                onPressed: () {
-                  if (DemoFdrPortalStore.instance.releaseCase == null) {
-                    DemoFdrPortalStore.instance.createReleaseCase();
-                    DemoFdrPortalStore.instance.appendAuditEntry(
-                      action: 'Release case created',
-                      associatedId: 'REL-2026-00017',
-                      actorRole: 'Demo Officer',
-                      payload: 'Normal Release',
-                    );
-                  }
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const _ReleaseCasePage(),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.fact_check_rounded),
-                label: const Text('Open Release / Refund Case'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: _orange,
-                  minimumSize: const Size.fromHeight(48),
+                  ],
                 ),
-              )
-            else ...[
-              OutlinedButton.icon(
-                onPressed: () {
-                  if (DemoFdrPortalStore.instance.releaseCase == null) {
-                    DemoFdrPortalStore.instance.createReleaseCase();
-                    DemoFdrPortalStore.instance.appendAuditEntry(
-                      action: 'Release case created',
-                      associatedId: 'REL-2026-00017',
-                      actorRole: 'Demo Officer',
-                      payload: 'Normal Release; verification currently blocked',
-                    );
-                  }
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const _ReleaseCasePage(),
+                const SizedBox(height: 12),
+                _SummaryMetric(label: 'Case ID', value: releaseCase.caseId),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _SummaryMetric(
+                        label: 'Total checks',
+                        value: store.verificationCurrent
+                            ? summary.totalChecks.toString()
+                            : '—',
+                      ),
                     ),
+                    Expanded(
+                      child: _SummaryMetric(
+                        label: 'Blocking',
+                        value: store.verificationCurrent
+                            ? summary.blocking.toString()
+                            : '—',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _SummaryMetric(
+                        label: 'Warnings',
+                        value: store.verificationCurrent
+                            ? summary.warnings.toString()
+                            : '—',
+                      ),
+                    ),
+                    Expanded(
+                      child: _SummaryMetric(
+                        label: 'Status',
+                        value: !store.verificationCurrent
+                            ? 'Not run'
+                            : isBlocked
+                            ? 'Blocked'
+                            : 'Passed',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          ...summary.issues.map(
+            (issue) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _IssueCard(issue: issue),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              color: Colors.white,
+              border: Border.all(color: _line),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Side-by-Side Comparison',
+                  style: TextStyle(
+                    color: _ink,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 9),
+                InteractiveViewer(
+                  minScale: 0.75,
+                  maxScale: 1.5,
+                  child: SizedBox(
+                    width: 940,
+                    child: DataTable(
+                    columnSpacing: 18,
+                    headingRowColor: WidgetStatePropertyAll(
+                      const Color(0xFFFFF7ED),
+                    ),
+                    columns: const [
+                      DataColumn(label: SizedBox(width: 110, child: Text('Field'))),
+                      DataColumn(label: SizedBox(width: 110, child: Text('FDR master'))),
+                      DataColumn(label: SizedBox(width: 110, child: Text('Receipt'))),
+                      DataColumn(label: SizedBox(width: 110, child: Text('Request letter'))),
+                      DataColumn(label: SizedBox(width: 110, child: Text('Affidavit'))),
+                      DataColumn(label: SizedBox(width: 110, child: Text('Result'))),
+                    ],
+                    rows: [
+                      for (final comparison in summary.comparisonMatrix)
+                        DataRow(
+                          cells: [
+                            DataCell(Text(comparison.field)),
+                            for (final source in DocumentSource.values)
+                              DataCell(
+                                Container(
+                                  constraints: const BoxConstraints(minWidth: 110),
+                                  color: comparison.differingSources.contains(source)
+                                      ? const Color(0xFFFFE4E6)
+                                      : null,
+                                  padding: const EdgeInsets.all(6),
+                                  child: Text(comparison.values[source] ?? 'Missing'),
+                                ),
+                              ),
+                            DataCell(
+                              Text(
+                                comparison.status == ComparisonStatus.allMatch
+                                    ? 'Match'
+                                    : comparison.status == ComparisonStatus.missing
+                                    ? 'Missing'
+                                    : 'Mismatch',
+                                style: TextStyle(
+                                  color: comparison.status == ComparisonStatus.allMatch
+                                      ? const Color(0xFF15803D)
+                                      : const Color(0xFFB91C1C),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          if (!isBlocked)
+            FilledButton.icon(
+              onPressed: () {
+                if (DemoFdrPortalStore.instance.releaseCase == null) {
+                  DemoFdrPortalStore.instance.createReleaseCase();
+                  DemoFdrPortalStore.instance.appendAuditEntry(
+                    action: 'Release case created',
+                    associatedId: 'REL-2026-00017',
+                    actorRole: 'Demo Officer',
+                    payload: 'Normal Release',
                   );
-                },
-                icon: const Icon(Icons.lock_outline_rounded),
-                label: const Text('Open Blocked Release Case'),
+                }
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const _ReleaseCasePage(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.fact_check_rounded),
+              label: const Text('Open Release / Refund Case'),
+              style: FilledButton.styleFrom(
+                backgroundColor: _orange,
+                minimumSize: const Size.fromHeight(48),
+              ),
+            )
+          else ...[
+            OutlinedButton.icon(
+              onPressed: () {
+                if (DemoFdrPortalStore.instance.releaseCase == null) {
+                  DemoFdrPortalStore.instance.createReleaseCase();
+                  DemoFdrPortalStore.instance.appendAuditEntry(
+                    action: 'Release case created',
+                    associatedId: 'REL-2026-00017',
+                    actorRole: 'Demo Officer',
+                    payload: 'Normal Release; verification currently blocked',
+                  );
+                }
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const _ReleaseCasePage(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.lock_outline_rounded),
+              label: const Text('Open Blocked Release Case'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _deepOrange,
+                minimumSize: const Size.fromHeight(44),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const _CorrectDetailsPage(),
+                  ),
+                ),
+                icon: const Icon(Icons.edit_note_rounded),
+                label: const Text('Correct Details'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: _deepOrange,
+                  side: const BorderSide(color: Color(0xFFF4C29A)),
                   minimumSize: const Size.fromHeight(44),
                 ),
               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 44,
-                child: OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const _CorrectDetailsPage(),
-                    ),
-                  ),
-                  icon: const Icon(Icons.edit_note_rounded),
-                  label: const Text('Correct Details'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _deepOrange,
-                    side: const BorderSide(color: Color(0xFFF4C29A)),
-                    minimumSize: const Size.fromHeight(44),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 44,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    final summary = store.runCurrentVerification();
-                    store.appendAuditEntry(
-                      action: 'Verification rerun',
-                      associatedId: store.currentSubmission.submissionId,
-                      actorRole: 'Demo Officer',
-                      payload: summary.statusText,
-                    );
-                    setState(() {});
-                  },
-                  icon: const Icon(Icons.refresh_rounded),
-                  label: Text(
-                    store.verificationCurrent
-                        ? 'Re-run Verification'
-                        : 'Run Verification',
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _ink,
-                    side: const BorderSide(color: _line),
-                    minimumSize: const Size.fromHeight(44),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 44,
-                child: OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const _AuditTrailPage(),
-                    ),
-                  ),
-                  icon: const Icon(Icons.history_rounded),
-                  label: const Text('View Audit Trail'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _ink,
-                    side: const BorderSide(color: _line),
-                    minimumSize: const Size.fromHeight(44),
-                  ),
-                ),
-              ),
-            ],
-            if (store.submissionById(record.submissionId)?.caseType ==
-                    'FDR Submission' &&
-                store.submissionById(record.submissionId)?.status !=
-                    VerificationStatus.rejected &&
-                store.submissionById(record.submissionId)?.status !=
-                    VerificationStatus.approved) ...[
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 44,
+              child: OutlinedButton.icon(
                 onPressed: () {
-                  store.rejectSubmission(
-                    record.submissionId,
-                    reason: summary.issues
-                        .map((issue) => issue.message)
-                        .join('; '),
+                  final summary = store.runCurrentVerification();
+                  store.appendAuditEntry(
+                    action: 'Verification rerun',
+                    associatedId: store.currentSubmission.submissionId,
+                    actorRole: 'Demo Officer',
+                    payload: summary.statusText,
                   );
-                  Navigator.of(context).pop();
+                  setState(() {});
                 },
-                icon: const Icon(Icons.assignment_return_outlined),
-                label: const Text(
-                  'Return to Institution for Correction (Demo)',
+                icon: const Icon(Icons.refresh_rounded),
+                label: Text(
+                  store.verificationCurrent
+                      ? 'Re-run Verification'
+                      : 'Run Verification',
                 ),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFFB91C1C),
+                  foregroundColor: _ink,
+                  side: const BorderSide(color: _line),
                   minimumSize: const Size.fromHeight(44),
                 ),
               ),
-            ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const _AuditTrailPage(),
+                  ),
+                ),
+                icon: const Icon(Icons.history_rounded),
+                label: const Text('View Audit Trail'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _ink,
+                  side: const BorderSide(color: _line),
+                  minimumSize: const Size.fromHeight(44),
+                ),
+              ),
+            ),
           ],
+          if (store.submissionById(record.submissionId)?.caseType ==
+                  'FDR Submission' &&
+              store.submissionById(record.submissionId)?.status !=
+                  VerificationStatus.rejected &&
+              store.submissionById(record.submissionId)?.status !=
+                  VerificationStatus.approved) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () {
+                store.rejectSubmission(
+                  record.submissionId,
+                  reason: summary.issues
+                      .map((issue) => issue.message)
+                      .join('; '),
+                );
+                Navigator.of(context).pop();
+              },
+              icon: const Icon(Icons.assignment_return_outlined),
+              label: const Text('Return to Institution for Correction (Demo)'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFB91C1C),
+                minimumSize: const Size.fromHeight(44),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -4784,87 +7270,87 @@ class _CorrectDetailsPageState extends State<_CorrectDetailsPage> {
     return OfficerPortalShell(
       title: 'Correct FDR Details',
       body: Form(
-          key: _formKey,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-            children: [
-              const _DemoNotice(),
-              const SizedBox(height: 12),
-              _FieldCard(
-                label: 'FDR number',
-                controller: _fdrNumberController,
-                validator: (value) => (value == null || value.trim().isEmpty)
-                    ? 'FDR number is required'
-                    : null,
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+          children: [
+            const _DemoNotice(),
+            const SizedBox(height: 12),
+            _FieldCard(
+              label: 'FDR number',
+              controller: _fdrNumberController,
+              validator: (value) => (value == null || value.trim().isEmpty)
+                  ? 'FDR number is required'
+                  : null,
+            ),
+            const SizedBox(height: 10),
+            _FieldCard(
+              label: 'Declared deposit amount',
+              controller: _amountController,
+              keyboardType: TextInputType.number,
+              validator: (value) {
+                final amount = value == null
+                    ? null
+                    : int.tryParse(value.trim());
+                if (amount == null) return 'Enter a valid declared amount';
+                if (amount <= 0) {
+                  return 'Declared amount must be greater than zero';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 10),
+            _MiniInfoRow(
+              label: 'Receipt amount (read only)',
+              value:
+                  '₹${_formatCurrency(DemoFdrPortalStore.instance.currentSubmission.receiptAmount)}',
+            ),
+            const SizedBox(height: 10),
+            _FieldCard(
+              label: 'Issue date',
+              controller: _issueDateController,
+              validator: _issueDateError,
+            ),
+            const SizedBox(height: 10),
+            _FieldCard(
+              label: 'Maturity date',
+              controller: _maturityDateController,
+              validator: _maturityDateError,
+            ),
+            const SizedBox(height: 10),
+            _FieldCard(
+              label: 'Tenure',
+              controller: _tenureController,
+              keyboardType: TextInputType.number,
+              validator: _tenureError,
+            ),
+            const SizedBox(height: 10),
+            _FieldCard(
+              label: 'Lien information',
+              controller: _lienController,
+              validator: (value) => (value?.length ?? 0) > 500
+                  ? 'Lien information must be 500 characters or fewer'
+                  : null,
+            ),
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text(
+                'Leave blank if unknown; missing lien information remains a verification warning.',
+                style: TextStyle(color: _muted, fontSize: 10),
               ),
-              const SizedBox(height: 10),
-              _FieldCard(
-                label: 'Declared deposit amount',
-                controller: _amountController,
-                keyboardType: TextInputType.number,
-                validator: (value) {
-                  final amount = value == null
-                      ? null
-                      : int.tryParse(value.trim());
-                  if (amount == null) return 'Enter a valid declared amount';
-                  if (amount <= 0) {
-                    return 'Declared amount must be greater than zero';
-                  }
-                  return null;
-                },
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: _save,
+              icon: const Icon(Icons.save_rounded),
+              label: const Text('Save Corrected Details'),
+              style: FilledButton.styleFrom(
+                backgroundColor: _orange,
+                minimumSize: const Size.fromHeight(48),
               ),
-              const SizedBox(height: 10),
-              _MiniInfoRow(
-                label: 'Receipt amount (read only)',
-                value:
-                    '₹${_formatCurrency(DemoFdrPortalStore.instance.currentSubmission.receiptAmount)}',
-              ),
-              const SizedBox(height: 10),
-              _FieldCard(
-                label: 'Issue date',
-                controller: _issueDateController,
-                validator: _issueDateError,
-              ),
-              const SizedBox(height: 10),
-              _FieldCard(
-                label: 'Maturity date',
-                controller: _maturityDateController,
-                validator: _maturityDateError,
-              ),
-              const SizedBox(height: 10),
-              _FieldCard(
-                label: 'Tenure',
-                controller: _tenureController,
-                keyboardType: TextInputType.number,
-                validator: _tenureError,
-              ),
-              const SizedBox(height: 10),
-              _FieldCard(
-                label: 'Lien information',
-                controller: _lienController,
-                validator: (value) => (value?.length ?? 0) > 500
-                    ? 'Lien information must be 500 characters or fewer'
-                    : null,
-              ),
-              const Padding(
-                padding: EdgeInsets.only(top: 6),
-                child: Text(
-                  'Leave blank if unknown; missing lien information remains a verification warning.',
-                  style: TextStyle(color: _muted, fontSize: 10),
-                ),
-              ),
-              const SizedBox(height: 18),
-              FilledButton.icon(
-                onPressed: _save,
-                icon: const Icon(Icons.save_rounded),
-                label: const Text('Save Corrected Details'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: _orange,
-                  minimumSize: const Size.fromHeight(48),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -4971,7 +7457,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
       builder: (context) => AlertDialog(
         title: const Text('Simulate final NOC?'),
         content: const Text(
-          'This records a local demo outcome only. It is not an official NOC and does not release funds.',
+          'This records the outcome without issuing an NOC or releasing funds.',
         ),
         actions: [
           TextButton(
@@ -4980,7 +7466,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Confirm demo action'),
+            child: const Text('Confirm action'),
           ),
         ],
       ),
@@ -5002,7 +7488,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
       builder: (context) => AlertDialog(
         title: const Text('Simulate FDR approval?'),
         content: const Text(
-          'This records an approved status in local demo data only. It is not official approval and does not transfer funds.',
+          'This records an approved status. It does not transfer funds.',
         ),
         actions: [
           TextButton(
@@ -5011,7 +7497,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Confirm demo action'),
+            child: const Text('Confirm action'),
           ),
         ],
       ),
@@ -5038,7 +7524,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Confirm demo action'),
+            child: const Text('Confirm action'),
           ),
         ],
       ),
@@ -5046,7 +7532,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
     if (confirmed != true || !mounted || !_eligibility().canAdvance) return;
     _store.approveProgressiveClosureInDemoMode();
     _store.appendAuditEntry(
-      action: 'Progressive closure approved in demo mode',
+      action: 'Progressive closure approved',
       associatedId: current.caseId,
       actorRole: 'Demo Officer',
       payload:
@@ -5072,7 +7558,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Confirm demo action'),
+            child: const Text('Confirm action'),
           ),
         ],
       ),
@@ -5080,7 +7566,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
     if (confirmed != true || !mounted || !_eligibility().canAdvance) return;
     _store.approveMergerInDemoMode();
     _store.appendAuditEntry(
-      action: 'Merger case approved in demo mode',
+      action: 'Merger case approved',
       associatedId: current.caseId,
       actorRole: 'Demo Officer',
       payload:
@@ -5103,7 +7589,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
       builder: (context) => AlertDialog(
         title: Text(document.name),
         content: Text(
-          '${document.type}\n${document.fileName}\n\nDemo checklist presence only. No real file is stored or validated.',
+          '${document.type}\n${document.fileName}\n\nChecklist presence only. No file is stored or validated.',
         ),
         actions: [
           TextButton(
@@ -5127,7 +7613,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
         _store.verificationForEligibility.blocking > 0;
     final nocIssued = record.status == 'NOC Issued — Demo';
     final caseApproved = record.status.endsWith('Approved — Demo');
-      final fdrApproved =
+    final fdrApproved =
         _store.submissionById(record.submissionId)?.status ==
         VerificationStatus.approved;
     final progressiveAmountValidation =
@@ -5144,691 +7630,705 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
     return OfficerPortalShell(
       title: 'Release / Refund Case',
       body: LayoutBuilder(
-          builder: (context, constraints) {
-            final horizontalPadding = constraints.maxWidth > 700 ? 28.0 : 18.0;
-            return ListView(
-              padding: EdgeInsets.fromLTRB(
-                horizontalPadding,
-                12,
-                horizontalPadding,
-                28,
+        builder: (context, constraints) {
+          final horizontalPadding = constraints.maxWidth > 700 ? 28.0 : 18.0;
+          return ListView(
+            padding: EdgeInsets.fromLTRB(
+              horizontalPadding,
+              12,
+              horizontalPadding,
+              28,
+            ),
+            children: [
+              const Text(
+                'Manage required documents and institutional clearances.',
+                style: TextStyle(color: _muted, fontSize: 13, height: 1.4),
               ),
-              children: [
-                const Text(
-                  'Manage required documents and institutional clearances.',
-                  style: TextStyle(color: _muted, fontSize: 13, height: 1.4),
+              const SizedBox(height: 10),
+              const _DemoNotice(),
+              const SizedBox(height: 12),
+              _ReleaseSection(
+                title: 'Case Summary',
+                trailing: const _DemoPill(),
+                child: Column(
+                  children: [
+                    _MiniInfoRow(label: 'Case ID', value: record.caseId),
+                    _MiniInfoRow(
+                      label: 'Submission ID',
+                      value: record.submissionId,
+                    ),
+                    _MiniInfoRow(
+                      label: 'Institution',
+                      value: record.institution,
+                    ),
+                    if (record.partialReleaseReason.isNotEmpty)
+                      _MiniInfoRow(
+                        label: 'Request reason',
+                        value: record.partialReleaseReason,
+                      ),
+                    if (isNormalRelease) ...[
+                      _MiniInfoRow(
+                        label: 'FDR number',
+                        value: _store.currentSubmission.fdrNumber,
+                      ),
+                      _MiniInfoRow(
+                        label: 'Deposit amount',
+                        value:
+                            '₹${_formatCurrency(_store.currentSubmission.declaredDepositAmount)}',
+                      ),
+                    ] else if (isProgressiveClosure) ...[
+                      _MiniInfoRow(
+                        label: 'FDR reference',
+                        value: record.originalFdrReference,
+                      ),
+                      _MiniInfoRow(
+                        label: 'Original FDR amount',
+                        value: '₹${_formatCurrency(record.originalFdrAmount)}',
+                      ),
+                      _MiniInfoRow(
+                        label: 'Requested release',
+                        value:
+                            '₹${_formatCurrency(record.requestedReleaseAmount)}',
+                      ),
+                      _MiniInfoRow(
+                        label: 'Retained balance',
+                        value: '₹${_formatCurrency(record.retainedBalance)}',
+                      ),
+                    ] else ...[
+                      _MiniInfoRow(
+                        label: 'Original FDR reference',
+                        value: record.originalFdrReference,
+                      ),
+                      _MiniInfoRow(
+                        label: 'Original FDR amount',
+                        value: '₹${_formatCurrency(record.originalFdrAmount)}',
+                      ),
+                      _MiniInfoRow(
+                        label: 'Successor institution',
+                        value: record.successorInstitution,
+                      ),
+                      _MiniInfoRow(
+                        label: 'Merger reference',
+                        value: record.mergerReference,
+                      ),
+                    ],
+                    _MiniInfoRow(label: 'Case status', value: record.status),
+                  ],
                 ),
+              ),
+              const SizedBox(height: 12),
+              _ReleaseSection(
+                title: 'Case Type',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      key: ValueKey('case-type-${record.caseType}'),
+                      initialValue: record.caseType,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _caseTypes
+                          .map(
+                            (type) => DropdownMenuItem(
+                              value: type,
+                              child: Text(type),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (type) {
+                        if (type == null || type == record.caseType) return;
+                        _store.updateReleaseCaseType(type);
+                        _store.appendAuditEntry(
+                          action: 'Case type selected',
+                          associatedId: _store.releaseCase!.caseId,
+                          actorRole: 'Demo Officer',
+                          payload: type,
+                        );
+                        setState(() {});
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _ReleaseSection(
+                title: 'Workflow Progress',
+                child: _WorkflowProgress(
+                  stages: isNormalRelease
+                      ? const [
+                          'FDR Verification',
+                          'Required Documents',
+                          'Grievance Redressal Cell',
+                          'Vigilance Cell',
+                          'Final NOC',
+                        ]
+                      : isProgressiveClosure
+                      ? const [
+                          'FDR Verification',
+                          'Partial Release Request',
+                          'Required Documents',
+                          'Grievance Redressal Cell',
+                          'Vigilance Cell',
+                          'Final NOC',
+                        ]
+                      : const [
+                          'Original FDR Verification',
+                          'Institution and Merger Details',
+                          'Required Documents',
+                          'Grievance Redressal Cell',
+                          'Vigilance Cell',
+                          'Final Review and NOC',
+                        ],
+                  completed: isNormalRelease
+                      ? [
+                          !verificationBlocked,
+                          record.checklist
+                              .where((item) => item.isRequired)
+                              .every((item) => item.isPresent),
+                          record.clearances.first.status == 'Cleared',
+                          record.clearances.last.status == 'Cleared',
+                          nocIssued,
+                        ]
+                      : isProgressiveClosure
+                      ? [
+                          !verificationBlocked,
+                          record.requestedReleaseAmount > 0 &&
+                              record.requestedReleaseAmount <=
+                                  record.availableBalance &&
+                              record.partialReleaseReason.trim().isNotEmpty,
+                          record.checklist
+                              .where((item) => item.isRequired)
+                              .every((item) => item.isPresent),
+                          record.clearances.first.status == 'Cleared',
+                          record.clearances.last.status == 'Cleared',
+                          caseApproved,
+                        ]
+                      : [
+                          !verificationBlocked,
+                          record.successorInstitution.trim().isNotEmpty &&
+                              record.mergerReference.trim().isNotEmpty &&
+                              record.effectiveDate.trim().isNotEmpty,
+                          record.checklist
+                              .where((item) => item.isRequired)
+                              .every((item) => item.isPresent),
+                          record.clearances.first.status == 'Cleared',
+                          record.clearances.last.status == 'Cleared',
+                          caseApproved,
+                        ],
+                  nextStage: eligibility.nextEligibleStage,
+                ),
+              ),
+              if (verificationBlocked) ...[
                 const SizedBox(height: 10),
-                const _DemoNotice(),
+                _InlineNotice(
+                  message: _store.verificationCurrent
+                      ? 'Case blocked — resolve all blocking FDR discrepancies before proceeding. ${_store.lastVerification.blocking} blocking item(s) remain.'
+                      : 'Verification required — run verification for the saved FDR details before proceeding.',
+                  color: const Color(0xFFFEF2F2),
+                  textColor: const Color(0xFF991B1B),
+                  icon: Icons.block_rounded,
+                  action: Wrap(
+                    spacing: 4,
+                    runSpacing: 2,
+                    children: [
+                      TextButton.icon(
+                        onPressed: _openVerificationResults,
+                        icon: const Icon(Icons.fact_check_outlined, size: 17),
+                        label: const Text('View Verification Results'),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const _CorrectDetailsPage(),
+                          ),
+                        ),
+                        icon: const Icon(Icons.edit_note_rounded, size: 17),
+                        label: const Text('Correct FDR Details'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (isProgressiveClosure) ...[
                 const SizedBox(height: 12),
                 _ReleaseSection(
-                  title: 'Case Summary',
+                  title: 'Partial Release Request',
                   trailing: const _DemoPill(),
-                  child: Column(
-                    children: [
-                      _MiniInfoRow(label: 'Case ID', value: record.caseId),
-                      _MiniInfoRow(
-                        label: 'Submission ID',
-                        value: record.submissionId,
-                      ),
-                      _MiniInfoRow(
-                        label: 'Institution',
-                        value: record.institution,
-                      ),
-                      if (record.partialReleaseReason.isNotEmpty)
+                  child: Form(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         _MiniInfoRow(
-                          label: 'Request reason',
-                          value: record.partialReleaseReason,
-                        ),
-                      if (isNormalRelease) ...[
-                        _MiniInfoRow(
-                          label: 'FDR number',
-                          value: _store.currentSubmission.fdrNumber,
-                        ),
-                        _MiniInfoRow(
-                          label: 'Deposit amount',
+                          label: 'Original FDR amount',
                           value:
-                              '₹${_formatCurrency(_store.currentSubmission.declaredDepositAmount)}',
+                              '₹${_formatCurrency(record.originalFdrAmount)}',
                         ),
-                      ] else if (isProgressiveClosure) ...[
                         _MiniInfoRow(
                           label: 'FDR reference',
                           value: record.originalFdrReference,
                         ),
                         _MiniInfoRow(
-                          label: 'Original FDR amount',
-                          value:
-                              '₹${_formatCurrency(record.originalFdrAmount)}',
+                          label: 'Currently available balance',
+                          value: '₹${_formatCurrency(record.availableBalance)}',
                         ),
-                        _MiniInfoRow(
-                          label: 'Requested release',
-                          value:
-                              '₹${_formatCurrency(record.requestedReleaseAmount)}',
+                        TextFormField(
+                          key: ValueKey('pcl-amount-${record.caseId}'),
+                          initialValue: record.requestedReleaseAmount
+                              .toString(),
+                          keyboardType: TextInputType.number,
+                          autovalidateMode: AutovalidateMode.always,
+                          decoration: const InputDecoration(
+                            labelText: 'Requested release amount (₹)',
+                            border: OutlineInputBorder(),
+                          ),
+                          validator: (value) {
+                            final amount = value == null
+                                ? null
+                                : int.tryParse(value.trim());
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Requested release amount is required.';
+                            }
+                            if (amount == null) {
+                              return 'Requested release amount must be numeric.';
+                            }
+                            if (amount <= 0) {
+                              return 'Requested release amount must be greater than zero.';
+                            }
+                            if (amount > record.originalFdrAmount) {
+                              return 'Requested release amount cannot exceed the original FDR amount.';
+                            }
+                            if (amount > record.availableBalance) {
+                              return 'Requested release amount cannot exceed the currently available balance.';
+                            }
+                            return null;
+                          },
+                          onChanged: (value) {
+                            final trimmed = value.trim();
+                            final parsed = int.tryParse(trimmed);
+                            if (trimmed.isEmpty || parsed == null) {
+                              return;
+                            }
+                            final oldAmount = _case.requestedReleaseAmount;
+                            if (parsed == oldAmount) return;
+                            _store.updateProgressiveClosure(
+                              requestedAmount: parsed,
+                            );
+                            _store.appendAuditEntry(
+                              action: 'Partial release amount changed',
+                              associatedId: record.caseId,
+                              actorRole: 'Demo Officer',
+                              payload: 'Requested amount ₹$parsed',
+                            );
+                            setState(() {});
+                          },
                         ),
-                        _MiniInfoRow(
-                          label: 'Retained balance',
-                          value: '₹${_formatCurrency(record.retainedBalance)}',
+                        const SizedBox(height: 10),
+                        Text(
+                          'Calculated retained balance: ₹${_formatCurrency(displayedRetainedBalance)}',
+                          style: TextStyle(
+                            color: displayedRetainedBalance < 0
+                                ? const Color(0xFFB91C1C)
+                                : _ink,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ] else ...[
-                        _MiniInfoRow(
-                          label: 'Original FDR reference',
-                          value: record.originalFdrReference,
-                        ),
-                        _MiniInfoRow(
-                          label: 'Original FDR amount',
-                          value:
-                              '₹${_formatCurrency(record.originalFdrAmount)}',
-                        ),
-                        _MiniInfoRow(
-                          label: 'Successor institution',
-                          value: record.successorInstitution,
-                        ),
-                        _MiniInfoRow(
-                          label: 'Merger reference',
-                          value: record.mergerReference,
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          key: ValueKey('pcl-reason-${record.caseId}'),
+                          initialValue: record.partialReleaseReason,
+                          maxLines: 2,
+                          autovalidateMode: AutovalidateMode.always,
+                          decoration: const InputDecoration(
+                            labelText: 'Reason for partial release',
+                            border: OutlineInputBorder(),
+                          ),
+                          validator: (value) =>
+                              value == null || value.trim().isEmpty
+                              ? 'A reason is required.'
+                              : null,
+                          onChanged: (value) {
+                            final changed = value != _case.partialReleaseReason;
+                            _store.updateProgressiveClosure(reason: value);
+                            if (changed) {
+                              _store.appendAuditEntry(
+                                action: 'Partial release reason changed',
+                                associatedId: record.caseId,
+                                actorRole: 'Demo Officer',
+                                payload: value,
+                              );
+                            }
+                            setState(() {});
+                          },
                         ),
                       ],
-                      _MiniInfoRow(label: 'Case status', value: record.status),
-                    ],
+                    ),
                   ),
                 ),
+              ],
+              if (isMerger) ...[
                 const SizedBox(height: 12),
                 _ReleaseSection(
-                  title: 'Case Type',
+                  title: 'Institution and Merger Details',
+                  trailing: const _DemoPill(),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      DropdownButtonFormField<String>(
-                        key: ValueKey('case-type-${record.caseType}'),
-                        initialValue: record.caseType,
+                      _MiniInfoRow(
+                        label: 'Original institution',
+                        value: record.institution,
+                      ),
+                      _MiniInfoRow(
+                        label: 'Original institution ID',
+                        value: record.originalInstitutionId,
+                      ),
+                      _MiniInfoRow(
+                        label: 'Successor institution ID',
+                        value: record.successorInstitutionId,
+                      ),
+                      _MiniInfoRow(
+                        label: 'Original FDR reference',
+                        value: record.originalFdrReference,
+                      ),
+                      _MiniInfoRow(
+                        label: 'Original FDR amount',
+                        value: '₹${_formatCurrency(record.originalFdrAmount)}',
+                      ),
+                      TextFormField(
+                        key: ValueKey('merger-successor-${record.caseId}'),
+                        initialValue: record.successorInstitution,
+                        autovalidateMode: AutovalidateMode.always,
                         decoration: const InputDecoration(
-                          isDense: true,
+                          labelText: 'Successor institution',
                           border: OutlineInputBorder(),
                         ),
-                        items: _caseTypes
-                            .map(
-                              (type) => DropdownMenuItem(
-                                value: type,
-                                child: Text(type),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (type) {
-                          if (type == null || type == record.caseType) return;
-                          _store.updateReleaseCaseType(type);
-                          _store.appendAuditEntry(
-                            action: 'Case type selected',
-                            associatedId: _store.releaseCase!.caseId,
-                            actorRole: 'Demo Officer',
-                            payload: type,
+                        validator: (value) =>
+                            value == null || value.trim().isEmpty
+                            ? 'Successor institution is required.'
+                            : null,
+                        onChanged: (value) {
+                          final changed = value != _case.successorInstitution;
+                          _store.updateMergerDetails(
+                            successorInstitution: value,
                           );
+                          if (changed) {
+                            _store.appendAuditEntry(
+                              action: 'Successor institution details changed',
+                              associatedId: record.caseId,
+                              actorRole: 'Demo Officer',
+                              payload: value,
+                            );
+                          }
+                          setState(() {});
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        key: ValueKey('merger-reference-${record.caseId}'),
+                        initialValue: record.mergerReference,
+                        autovalidateMode: AutovalidateMode.always,
+                        decoration: const InputDecoration(
+                          labelText: 'Merger reference number',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) =>
+                            value == null || value.trim().isEmpty
+                            ? 'Merger reference is required.'
+                            : null,
+                        onChanged: (value) {
+                          final changed = value != _case.mergerReference;
+                          _store.updateMergerDetails(mergerReference: value);
+                          if (changed) {
+                            _store.appendAuditEntry(
+                              action: 'Merger reference changed',
+                              associatedId: record.caseId,
+                              actorRole: 'Demo Officer',
+                              payload: value,
+                            );
+                          }
+                          setState(() {});
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        key: ValueKey('merger-date-${record.caseId}'),
+                        initialValue: record.effectiveDate,
+                        autovalidateMode: AutovalidateMode.always,
+                        decoration: const InputDecoration(
+                          labelText: 'Effective date',
+                          hintText: 'DD Month YYYY',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) =>
+                            value == null || value.trim().isEmpty
+                            ? 'Effective date is required.'
+                            : null,
+                        onChanged: (value) {
+                          final changed = value != _case.effectiveDate;
+                          _store.updateMergerDetails(effectiveDate: value);
+                          if (changed) {
+                            _store.appendAuditEntry(
+                              action: 'Merger effective date changed',
+                              associatedId: record.caseId,
+                              actorRole: 'Demo Officer',
+                              payload: value,
+                            );
+                          }
                           setState(() {});
                         },
                       ),
                     ],
                   ),
                 ),
+              ],
+              ...[
                 const SizedBox(height: 12),
+                if (record.history.isNotEmpty)
+                  _ReleaseSection(
+                    title: 'Case History',
+                    child: Column(
+                      children: [
+                        for (final event in record.history)
+                          ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.timeline_rounded, color: _orange),
+                            title: Text(event.action),
+                            subtitle: Text(
+                              '${event.actor} · ${event.at.toLocal()}\n${event.remark}',
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                if (record.history.isNotEmpty) const SizedBox(height: 12),
                 _ReleaseSection(
-                  title: 'Workflow Progress',
-                  child: _WorkflowProgress(
-                    stages: isNormalRelease
-                        ? const [
-                            'FDR Verification',
-                            'Required Documents',
-                            'Grievance Redressal Cell',
-                            'Vigilance Cell',
-                            'Final NOC',
-                          ]
-                        : isProgressiveClosure
-                        ? const [
-                            'FDR Verification',
-                            'Partial Release Request',
-                            'Required Documents',
-                            'Grievance Redressal Cell',
-                            'Vigilance Cell',
-                            'Final NOC',
-                          ]
-                        : const [
-                            'Original FDR Verification',
-                            'Institution and Merger Details',
-                            'Required Documents',
-                            'Grievance Redressal Cell',
-                            'Vigilance Cell',
-                            'Final Review and NOC',
-                          ],
-                    completed: isNormalRelease
-                        ? [
-                            !verificationBlocked,
-                            record.checklist
-                                .where((item) => item.isRequired)
-                                .every((item) => item.isPresent),
-                            record.clearances.first.status == 'Cleared',
-                            record.clearances.last.status == 'Cleared',
-                            nocIssued,
-                          ]
-                        : isProgressiveClosure
-                        ? [
-                            !verificationBlocked,
-                            record.requestedReleaseAmount > 0 &&
-                                record.requestedReleaseAmount <=
-                                    record.availableBalance &&
-                                record.partialReleaseReason.trim().isNotEmpty,
-                            record.checklist
-                                .where((item) => item.isRequired)
-                                .every((item) => item.isPresent),
-                            record.clearances.first.status == 'Cleared',
-                            record.clearances.last.status == 'Cleared',
-                            caseApproved,
-                          ]
-                        : [
-                            !verificationBlocked,
-                            record.successorInstitution.trim().isNotEmpty &&
-                                record.mergerReference.trim().isNotEmpty &&
-                                record.effectiveDate.trim().isNotEmpty,
-                            record.checklist
-                                .where((item) => item.isRequired)
-                                .every((item) => item.isPresent),
-                            record.clearances.first.status == 'Cleared',
-                            record.clearances.last.status == 'Cleared',
-                            caseApproved,
-                          ],
-                    nextStage: eligibility.nextEligibleStage,
+                  title: 'Required Documents',
+                  child: Column(
+                    children: [
+                      for (final document in record.checklist)
+                        _ReleaseDocumentRow(
+                          document: document,
+                          onChanged: (present) =>
+                              _setDocumentPresence(document, present),
+                          onDetails: () => _showDocumentDetails(document),
+                        ),
+                      if (record.checklist.any(
+                        (item) => item.isRequired && !item.isPresent,
+                      )) ...[
+                        const SizedBox(height: 6),
+                        const _InlineNotice(
+                          message:
+                              'Missing required documents must be marked present before this case can advance.',
+                          color: Color(0xFFFFF7ED),
+                          textColor: Color(0xFF9A3412),
+                          icon: Icons.upload_file_outlined,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-                if (verificationBlocked) ...[
-                  const SizedBox(height: 10),
-                  _InlineNotice(
-                    message: _store.verificationCurrent
-                        ? 'Case blocked — resolve all blocking FDR discrepancies before proceeding. ${_store.lastVerification.blocking} blocking item(s) remain.'
-                        : 'Verification required — run verification for the saved FDR details before proceeding.',
-                    color: const Color(0xFFFEF2F2),
-                    textColor: const Color(0xFF991B1B),
-                    icon: Icons.block_rounded,
-                    action: Wrap(
-                      spacing: 4,
-                      runSpacing: 2,
-                      children: [
-                        TextButton.icon(
-                          onPressed: _openVerificationResults,
-                          icon: const Icon(Icons.fact_check_outlined, size: 17),
-                          label: const Text('View Verification Results'),
-                        ),
-                        TextButton.icon(
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => const _CorrectDetailsPage(),
-                            ),
-                          ),
-                          icon: const Icon(Icons.edit_note_rounded, size: 17),
-                          label: const Text('Correct FDR Details'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                if (isProgressiveClosure) ...[
-                  const SizedBox(height: 12),
-                  _ReleaseSection(
-                    title: 'Partial Release Request',
-                    trailing: const _DemoPill(),
-                    child: Form(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _MiniInfoRow(
-                            label: 'Original FDR amount',
-                            value:
-                                '₹${_formatCurrency(record.originalFdrAmount)}',
-                          ),
-                          _MiniInfoRow(
-                            label: 'FDR reference',
-                            value: record.originalFdrReference,
-                          ),
-                          _MiniInfoRow(
-                            label: 'Currently available balance',
-                            value:
-                                '₹${_formatCurrency(record.availableBalance)}',
-                          ),
-                          TextFormField(
-                            key: ValueKey('pcl-amount-${record.caseId}'),
-                            initialValue: record.requestedReleaseAmount
-                                .toString(),
-                            keyboardType: TextInputType.number,
-                            autovalidateMode: AutovalidateMode.always,
-                            decoration: const InputDecoration(
-                              labelText: 'Requested release amount (₹)',
-                              border: OutlineInputBorder(),
-                            ),
-                            validator: (value) {
-                              final amount = value == null
-                                  ? null
-                                  : int.tryParse(value.trim());
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Requested release amount is required.';
-                              }
-                              if (amount == null) {
-                                return 'Requested release amount must be numeric.';
-                              }
-                              if (amount <= 0) {
-                                return 'Requested release amount must be greater than zero.';
-                              }
-                              if (amount > record.originalFdrAmount) {
-                                return 'Requested release amount cannot exceed the original FDR amount.';
-                              }
-                              if (amount > record.availableBalance) {
-                                return 'Requested release amount cannot exceed the currently available balance.';
-                              }
-                              return null;
-                            },
-                            onChanged: (value) {
-                              final trimmed = value.trim();
-                              final parsed = int.tryParse(trimmed);
-                              if (trimmed.isEmpty || parsed == null) {
-                                return;
-                              }
-                              final oldAmount = _case.requestedReleaseAmount;
-                              if (parsed == oldAmount) return;
-                              _store.updateProgressiveClosure(
-                                requestedAmount: parsed,
-                              );
-                              _store.appendAuditEntry(
-                                action: 'Partial release amount changed',
-                                associatedId: record.caseId,
-                                actorRole: 'Demo Officer',
-                                payload: 'Requested amount ₹$parsed',
-                              );
-                              setState(() {});
-                            },
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            'Calculated retained balance: ₹${_formatCurrency(displayedRetainedBalance)}',
-                            style: TextStyle(
-                              color: displayedRetainedBalance < 0
-                                  ? const Color(0xFFB91C1C)
-                                  : _ink,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          TextFormField(
-                            key: ValueKey('pcl-reason-${record.caseId}'),
-                            initialValue: record.partialReleaseReason,
-                            maxLines: 2,
-                            autovalidateMode: AutovalidateMode.always,
-                            decoration: const InputDecoration(
-                              labelText: 'Reason for partial release',
-                              border: OutlineInputBorder(),
-                            ),
-                            validator: (value) =>
-                                value == null || value.trim().isEmpty
-                                ? 'A reason is required.'
-                                : null,
-                            onChanged: (value) {
-                              final changed =
-                                  value != _case.partialReleaseReason;
-                              _store.updateProgressiveClosure(reason: value);
-                              if (changed) {
-                                _store.appendAuditEntry(
-                                  action: 'Partial release reason changed',
-                                  associatedId: record.caseId,
-                                  actorRole: 'Demo Officer',
-                                  payload: value,
-                                );
-                              }
-                              setState(() {});
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-                if (isMerger) ...[
-                  const SizedBox(height: 12),
-                  _ReleaseSection(
-                    title: 'Institution and Merger Details',
-                    trailing: const _DemoPill(),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _MiniInfoRow(
-                          label: 'Original institution',
-                          value: record.institution,
-                        ),
-                        _MiniInfoRow(
-                          label: 'Original institution ID',
-                          value: record.originalInstitutionId,
-                        ),
-                        _MiniInfoRow(
-                          label: 'Successor institution ID',
-                          value: record.successorInstitutionId,
-                        ),
-                        _MiniInfoRow(
-                          label: 'Original FDR reference',
-                          value: record.originalFdrReference,
-                        ),
-                        _MiniInfoRow(
-                          label: 'Original FDR amount',
-                          value:
-                              '₹${_formatCurrency(record.originalFdrAmount)}',
-                        ),
-                        TextFormField(
-                          key: ValueKey('merger-successor-${record.caseId}'),
-                          initialValue: record.successorInstitution,
-                          autovalidateMode: AutovalidateMode.always,
-                          decoration: const InputDecoration(
-                            labelText: 'Successor institution',
-                            border: OutlineInputBorder(),
-                          ),
-                          validator: (value) =>
-                              value == null || value.trim().isEmpty
-                              ? 'Successor institution is required.'
-                              : null,
-                          onChanged: (value) {
-                            final changed = value != _case.successorInstitution;
-                            _store.updateMergerDetails(
-                              successorInstitution: value,
-                            );
-                            if (changed) {
-                              _store.appendAuditEntry(
-                                action: 'Successor institution details changed',
-                                associatedId: record.caseId,
-                                actorRole: 'Demo Officer',
-                                payload: value,
-                              );
-                            }
-                            setState(() {});
-                          },
-                        ),
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          key: ValueKey('merger-reference-${record.caseId}'),
-                          initialValue: record.mergerReference,
-                          autovalidateMode: AutovalidateMode.always,
-                          decoration: const InputDecoration(
-                            labelText: 'Merger reference number',
-                            border: OutlineInputBorder(),
-                          ),
-                          validator: (value) =>
-                              value == null || value.trim().isEmpty
-                              ? 'Merger reference is required.'
-                              : null,
-                          onChanged: (value) {
-                            final changed = value != _case.mergerReference;
-                            _store.updateMergerDetails(mergerReference: value);
-                            if (changed) {
-                              _store.appendAuditEntry(
-                                action: 'Merger reference changed',
-                                associatedId: record.caseId,
-                                actorRole: 'Demo Officer',
-                                payload: value,
-                              );
-                            }
-                            setState(() {});
-                          },
-                        ),
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          key: ValueKey('merger-date-${record.caseId}'),
-                          initialValue: record.effectiveDate,
-                          autovalidateMode: AutovalidateMode.always,
-                          decoration: const InputDecoration(
-                            labelText: 'Effective date',
-                            hintText: 'DD Month YYYY',
-                            border: OutlineInputBorder(),
-                          ),
-                          validator: (value) =>
-                              value == null || value.trim().isEmpty
-                              ? 'Effective date is required.'
-                              : null,
-                          onChanged: (value) {
-                            final changed = value != _case.effectiveDate;
-                            _store.updateMergerDetails(effectiveDate: value);
-                            if (changed) {
-                              _store.appendAuditEntry(
-                                action: 'Merger effective date changed',
-                                associatedId: record.caseId,
-                                actorRole: 'Demo Officer',
-                                payload: value,
-                              );
-                            }
-                            setState(() {});
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                ...[
-                  const SizedBox(height: 12),
-                  _ReleaseSection(
-                    title: 'Required Documents',
-                    child: Column(
-                      children: [
-                        for (final document in record.checklist)
-                          _ReleaseDocumentRow(
-                            document: document,
-                            onChanged: (present) =>
-                                _setDocumentPresence(document, present),
-                            onDetails: () => _showDocumentDetails(document),
-                          ),
-                        if (record.checklist.any(
-                          (item) => item.isRequired && !item.isPresent,
-                        )) ...[
-                          const SizedBox(height: 6),
-                          const _InlineNotice(
-                            message:
-                                'Missing required documents must be marked present before this case can advance. No file upload is connected in demo mode.',
-                            color: Color(0xFFFFF7ED),
-                            textColor: Color(0xFF9A3412),
-                            icon: Icons.upload_file_outlined,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _ReleaseSection(
-                    title: 'Cell Clearances',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (final clearance in record.clearances)
-                          _ClearanceCard(
-                            clearance: clearance,
-                            onClear: () =>
-                                _recordClearanceDecision(clearance, 'Cleared'),
-                            onClarification: () => _recordClearanceDecision(
-                              clearance,
-                              'Clarification Requested',
-                            ),
-                          ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Required clearances are processed independently. The case cannot proceed until every required clearance is complete.',
-                          style: TextStyle(
-                            color: _muted,
-                            fontSize: 11,
-                            height: 1.4,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 12),
                 _ReleaseSection(
-                  title: isMerger ? 'Final Review and NOC' : 'Final NOC',
+                  title: 'Cell Clearances',
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              'Status',
-                              style: TextStyle(color: _muted, fontSize: 12),
-                            ),
+                      for (final clearance in record.clearances)
+                        _ClearanceCard(
+                          clearance: clearance,
+                          onClear: () =>
+                              _recordClearanceDecision(clearance, 'Cleared'),
+                          onClarification: () => _recordClearanceDecision(
+                            clearance,
+                            'Clarification Requested',
                           ),
-                          _ReleaseStatusBadge(status: record.status),
-                        ],
-                      ),
-                      const SizedBox(height: 9),
-                      Text(
-                        isProgressiveClosure
-                            ? 'Required: valid partial amount and reason, required documents, resolved FDR discrepancies, and both cell clearances.'
-                            : isMerger
-                            ? 'Required: verified original FDR, complete merger details, required documents, resolved discrepancies, and both cell clearances.'
-                            : 'Required: all blocking discrepancies resolved, required documents present, and required cell clearances completed.',
-                        style: const TextStyle(
-                          color: _ink,
-                          fontSize: 12,
+                        ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Required clearances are processed independently. The case cannot proceed until every required clearance is complete.',
+                        style: TextStyle(
+                          color: _muted,
+                          fontSize: 11,
                           height: 1.4,
                         ),
                       ),
-                      if (isProgressiveClosure && caseApproved) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          'Approved amount: ₹${_formatCurrency(record.requestedReleaseAmount)} · Retained balance: ₹${_formatCurrency(record.retainedBalance)}',
-                          style: const TextStyle(
-                            color: Color(0xFF166534),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              _ReleaseSection(
+                title: isMerger ? 'Final Review and NOC' : 'Final NOC',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Status',
+                            style: TextStyle(color: _muted, fontSize: 12),
                           ),
                         ),
-                        const Text(
-                          'Demo decision only. No real funds were transferred.',
-                          style: TextStyle(color: _muted, fontSize: 10),
-                        ),
+                        _ReleaseStatusBadge(status: record.status),
                       ],
-                      if (isMerger && caseApproved) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          'Demo relationship recorded: ${record.institution} (${record.originalInstitutionId}) → ${record.successorInstitution} (${record.successorInstitutionId})',
-                          style: const TextStyle(
-                            color: Color(0xFF166534),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
+                    ),
+                    const SizedBox(height: 9),
+                    Text(
+                      isProgressiveClosure
+                          ? 'Required: valid partial amount and reason, required documents, resolved FDR discrepancies, and both cell clearances.'
+                          : isMerger
+                          ? 'Required: verified original FDR, complete merger details, required documents, resolved discrepancies, and both cell clearances.'
+                          : 'Required: all blocking discrepancies resolved, required documents present, and required cell clearances completed.',
+                      style: const TextStyle(
+                        color: _ink,
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                    if (isProgressiveClosure && caseApproved) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Approved amount: ₹${_formatCurrency(record.requestedReleaseAmount)} · Retained balance: ₹${_formatCurrency(record.retainedBalance)}',
+                        style: const TextStyle(
+                          color: Color(0xFF166534),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
                         ),
-                        Text(
-                          'Original FDR ${record.originalFdrReference} remains preserved. This demo record has no legal or official effect.',
-                          style: const TextStyle(color: _muted, fontSize: 10),
+                      ),
+                      const Text(
+                        'Demo decision only. No real funds were transferred.',
+                        style: TextStyle(color: _muted, fontSize: 10),
+                      ),
+                    ],
+                    if (isMerger && caseApproved) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Demo relationship recorded: ${record.institution} (${record.originalInstitutionId}) → ${record.successorInstitution} (${record.successorInstitutionId})',
+                        style: const TextStyle(
+                          color: Color(0xFF166534),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
                         ),
-                      ],
-                      const SizedBox(height: 10),
-                      for (final clearance in record.clearances)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  clearance.name,
-                                  style: const TextStyle(
-                                    color: _muted,
-                                    fontSize: 11,
-                                  ),
+                      ),
+                      Text(
+                        'Original FDR ${record.originalFdrReference} remains preserved. This demo record has no legal or official effect.',
+                        style: const TextStyle(color: _muted, fontSize: 10),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    for (final clearance in record.clearances)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                clearance.name,
+                                style: const TextStyle(
+                                  color: _muted,
+                                  fontSize: 11,
                                 ),
                               ),
-                              _ReleaseStatusBadge(status: clearance.status),
-                            ],
-                          ),
+                            ),
+                            _ReleaseStatusBadge(status: clearance.status),
+                          ],
                         ),
-                      if (!eligibility.canAdvance) ...[
-                        const SizedBox(height: 8),
-                        for (final reason in eligibility.blockingReasons)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Text(
-                              '• $reason',
-                              style: const TextStyle(
-                                color: Color(0xFF991B1B),
-                                fontSize: 11,
-                                height: 1.35,
-                              ),
-                            ),
-                          ),
-                        for (final document in eligibility.missingDocuments)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Text(
-                              'Missing document: $document',
-                              style: const TextStyle(
-                                color: Color(0xFF991B1B),
-                                fontSize: 11,
-                                height: 1.35,
-                              ),
-                            ),
-                          ),
-                        for (final clearance in eligibility.pendingClearances)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Text(
-                              'Pending clearance: $clearance',
-                              style: const TextStyle(
-                                color: Color(0xFF991B1B),
-                                fontSize: 11,
-                                height: 1.35,
-                              ),
-                            ),
-                          ),
-                      ],
-                      if (eligibility.warnings.isNotEmpty) ...[
-                        const SizedBox(height: 7),
-                        for (final warning in eligibility.warnings)
-                          Text(
-                            'Warning: $warning',
+                      ),
+                    if (!eligibility.canAdvance) ...[
+                      const SizedBox(height: 8),
+                      for (final reason in eligibility.blockingReasons)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            '• $reason',
                             style: const TextStyle(
-                              color: Color(0xFF92400E),
+                              color: Color(0xFF991B1B),
                               fontSize: 11,
                               height: 1.35,
                             ),
                           ),
-                      ],
-                      const SizedBox(height: 12),
-                      if (isNormalRelease) ...[
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed:
-                                !fdrApproved &&
-                                    _store.canApproveFdrSubmissionInDemoMode()
-                                ? _simulateFdrApproval
-                                : null,
-                            icon: const Icon(Icons.verified_rounded),
-                            label: Text(
-                                fdrApproved
-                                  ? 'FDR Approved — Demo'
-                                  : 'Approve FDR Submission (Demo)',
-                            ),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF15803D),
-                              minimumSize: const Size.fromHeight(46),
+                        ),
+                      for (final document in eligibility.missingDocuments)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            'Missing document: $document',
+                            style: const TextStyle(
+                              color: Color(0xFF991B1B),
+                              fontSize: 11,
+                              height: 1.35,
                             ),
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        if (fdrApproved)
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton.icon(
-                              onPressed: () {
-                                _officerSelectedTab.value = 0;
-                                Navigator.of(context).popUntil(
-                                  (route) => route.isFirst,
-                                );
-                              },
-                              icon: const Icon(Icons.home_outlined),
-                              label: const Text('Back to Home'),
+                      for (final clearance in eligibility.pendingClearances)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            'Pending clearance: $clearance',
+                            style: const TextStyle(
+                              color: Color(0xFF991B1B),
+                              fontSize: 11,
+                              height: 1.35,
                             ),
                           ),
-                      ],
-                      if (!fdrApproved)
+                        ),
+                    ],
+                    if (eligibility.warnings.isNotEmpty) ...[
+                      const SizedBox(height: 7),
+                      for (final warning in eligibility.warnings)
+                        Text(
+                          'Warning: $warning',
+                          style: const TextStyle(
+                            color: Color(0xFF92400E),
+                            fontSize: 11,
+                            height: 1.35,
+                          ),
+                        ),
+                    ],
+                    const SizedBox(height: 12),
+                    if (isNormalRelease) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed:
+                              !fdrApproved &&
+                                  _store.canApproveFdrSubmissionInDemoMode()
+                              ? _simulateFdrApproval
+                              : null,
+                          icon: const Icon(Icons.verified_rounded),
+                          label: Text(
+                            fdrApproved
+                                ? 'FDR Approved — Demo'
+                                : 'Approve FDR Submission (Demo)',
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF15803D),
+                            minimumSize: const Size.fromHeight(46),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      if (fdrApproved)
                         SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              _officerSelectedTab.value = 0;
+                              Navigator.of(
+                                context,
+                              ).popUntil((route) => route.isFirst);
+                            },
+                            icon: const Icon(Icons.home_outlined),
+                            label: const Text('Back to Home'),
+                          ),
+                        ),
+                    ],
+                    if (!fdrApproved)
+                      SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
                           onPressed:
@@ -5859,31 +8359,31 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Demo only. No official approval, legal effect, or real fund transfer is represented.',
-                        style: TextStyle(color: _muted, fontSize: 10),
-                      ),
-                    ],
-                  ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'No fund transfer is performed by this action.',
+                      style: TextStyle(color: _muted, fontSize: 10),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: _openAuditTrail,
-                  icon: const Icon(Icons.history_rounded),
-                  label: const Text('View Audit Trail'),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _openAuditTrail,
+                icon: const Icon(Icons.history_rounded),
+                label: const Text('View Audit Trail'),
+              ),
+              const Padding(
+                padding: EdgeInsets.only(top: 3),
+                child: Text(
+                  'Audit records are maintained locally.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: _muted, fontSize: 10, height: 1.35),
                 ),
-                const Padding(
-                  padding: EdgeInsets.only(top: 3),
-                  child: Text(
-                    'Audit hash-chain is local demo functionality; backend integrity has not been connected or verified.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: _muted, fontSize: 10, height: 1.35),
-                  ),
-                ),
-              ],
-            );
-          },
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -6143,7 +8643,7 @@ class _ReleaseDocumentRow extends StatelessWidget {
                 style: const TextStyle(color: _muted, fontSize: 10),
               ),
               Text(
-                document.status,
+                _cleanPortalLabel(document.status),
                 style: TextStyle(
                   color: document.isPresent
                       ? const Color(0xFF166534)
@@ -6272,7 +8772,7 @@ class _ReleaseStatusBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
-        status,
+        _cleanPortalLabel(status),
         style: TextStyle(
           color: color,
           fontSize: 9,
@@ -6324,7 +8824,7 @@ class _ClearanceDecisionDialogState extends State<_ClearanceDecisionDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '${widget.cellName}\nDemo action only. No official AICTE clearance is being recorded.',
+              widget.cellName,
               style: const TextStyle(fontSize: 13, height: 1.4),
             ),
             const SizedBox(height: 12),
@@ -6405,12 +8905,92 @@ class _AuditTrailPageState extends State<_AuditTrailPage> {
     return OfficerPortalShell(
       title: 'Audit Trail',
       body: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-          children: [
-            const _DemoNotice(),
-            const SizedBox(height: 12),
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+        children: [
+          const _DemoNotice(),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: _line),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.verified_rounded,
+                      color: Color(0xFF16A34A),
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        integrity.isValid
+                            ? 'Verified'
+                            : 'Integrity issue found',
+                        style: const TextStyle(
+                          color: _ink,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _verificationMessage.isEmpty
+                      ? integrity.message
+                      : _verificationMessage,
+                  style: TextStyle(
+                    color: integrity.isValid
+                        ? const Color(0xFF166534)
+                        : const Color(0xFFB91C1C),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          final result = _verifyChain();
+                          setState(() => _verificationMessage = result.message);
+                        },
+                        icon: const Icon(Icons.check_circle_outline_rounded),
+                        label: const Text('Verify Integrity'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _simulateTampering,
+                        icon: const Icon(Icons.warning_amber_rounded),
+                        label: const Text('Simulate Tampering'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _resetDemoData,
+                  icon: const Icon(Icons.restart_alt_rounded),
+                  label: const Text('Reset Demo Data'),
+                  style: OutlinedButton.styleFrom(foregroundColor: _deepOrange),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          for (final entry in entries)
             Container(
-              padding: const EdgeInsets.all(16),
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(14),
@@ -6419,137 +8999,53 @@ class _AuditTrailPageState extends State<_AuditTrailPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.verified_rounded,
-                        color: Color(0xFF16A34A),
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          integrity.isValid
-                              ? 'Verified'
-                              : 'Integrity issue found',
-                          style: const TextStyle(
-                            color: _ink,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
                   Text(
-                    _verificationMessage.isEmpty
-                        ? integrity.message
-                        : _verificationMessage,
-                    style: TextStyle(
-                      color: integrity.isValid
-                          ? const Color(0xFF166534)
-                          : const Color(0xFFB91C1C),
+                    'Event ID: ${entry.eventId}',
+                    style: const TextStyle(
+                      color: _ink,
                       fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Timestamp: ${entry.timestamp}',
+                    style: const TextStyle(color: _muted, fontSize: 10),
+                  ),
+                  Text(
+                    'Actor: ${entry.actorRole}',
+                    style: const TextStyle(color: _muted, fontSize: 10),
+                  ),
+                  Text(
+                    'Action: ${entry.action}',
+                    style: const TextStyle(
+                      color: _ink,
+                      fontSize: 11,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            final result = _verifyChain();
-                            setState(
-                              () => _verificationMessage = result.message,
-                            );
-                          },
-                          icon: const Icon(Icons.check_circle_outline_rounded),
-                          label: const Text('Verify Integrity'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _simulateTampering,
-                          icon: const Icon(Icons.warning_amber_rounded),
-                          label: const Text('Simulate Tampering'),
-                        ),
-                      ),
-                    ],
+                  Text(
+                    'Associated: ${entry.associatedId}',
+                    style: const TextStyle(color: _muted, fontSize: 10),
                   ),
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: _resetDemoData,
-                    icon: const Icon(Icons.restart_alt_rounded),
-                    label: const Text('Reset Demo Data'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _deepOrange,
+                  if (entry.payload.isNotEmpty)
+                    Text(
+                      'Detail: ${entry.payload}',
+                      style: const TextStyle(color: _muted, fontSize: 10),
                     ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Previous hash: ${entry.previousHash}',
+                    style: const TextStyle(color: _ink, fontSize: 9),
+                  ),
+                  Text(
+                    'Current entry hash: ${entry.entryHash}',
+                    style: const TextStyle(color: _ink, fontSize: 9),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 14),
-            for (final entry in entries)
-              Container(
-                margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: _line),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Event ID: ${entry.eventId}',
-                      style: const TextStyle(
-                        color: _ink,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Timestamp: ${entry.timestamp}',
-                      style: const TextStyle(color: _muted, fontSize: 10),
-                    ),
-                    Text(
-                      'Actor: ${entry.actorRole}',
-                      style: const TextStyle(color: _muted, fontSize: 10),
-                    ),
-                    Text(
-                      'Action: ${entry.action}',
-                      style: const TextStyle(
-                        color: _ink,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      'Associated: ${entry.associatedId}',
-                      style: const TextStyle(color: _muted, fontSize: 10),
-                    ),
-                    if (entry.payload.isNotEmpty)
-                      Text(
-                        'Detail: ${entry.payload}',
-                        style: const TextStyle(color: _muted, fontSize: 10),
-                      ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Previous hash: ${entry.previousHash}',
-                      style: const TextStyle(color: _ink, fontSize: 9),
-                    ),
-                    Text(
-                      'Current entry hash: ${entry.entryHash}',
-                      style: const TextStyle(color: _ink, fontSize: 9),
-                    ),
-                  ],
-                ),
-              ),
-          ],
+        ],
       ),
     );
   }
@@ -6805,7 +9301,7 @@ class _DocumentListItem extends StatelessWidget {
         ),
       ),
       Text(
-        document.status,
+        _cleanPortalLabel(document.status),
         style: const TextStyle(
           color: Color(0xFF16A34A),
           fontSize: 10,
@@ -6888,7 +9384,7 @@ class _MiniInfoRow extends StatelessWidget {
         ),
         Expanded(
           child: Text(
-            value,
+            _cleanPortalLabel(value),
             style: const TextStyle(
               color: _ink,
               fontSize: 11,
@@ -6908,6 +9404,12 @@ String _formatCurrency(int amount) => amount.toString().replaceAllMapped(
 
 int _parseCurrency(String amount) =>
     int.tryParse(amount.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+
+String _cleanPortalLabel(String value) => value
+    .replaceAll(' — Demo', '')
+    .replaceAll(' in demo mode', '')
+    .replaceAll('Demo ', '')
+    .replaceAll('demo ', '');
 
 String _statusLabel(SubmissionStatus status) => switch (status) {
   SubmissionStatus.pendingReview => 'Pending Review',

@@ -43,7 +43,6 @@ class _LoginScreenState extends State<LoginScreen> {
   static const _deepOrange = Color(0xFFEA580C);
   static const _ink = Color(0xFF1F2937);
   static const _muted = Color(0xFF6B7280);
-  static const _border = Color(0xFFE5E7EB);
 
   final _formKey = GlobalKey<FormState>();
   final _userIdController = TextEditingController();
@@ -340,36 +339,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ],
                             ),
                           ),
-                          const SizedBox(height: 17),
-                          const _OrDivider(),
-                          const SizedBox(height: 13),
-                          SizedBox(
-                            height: 50,
-                            child: OutlinedButton.icon(
-                              onPressed: () => _showNotice(
-                                'Institutional SSO is not connected yet.',
-                              ),
-                              icon: const Icon(
-                                Icons.account_balance_outlined,
-                                size: 19,
-                              ),
-                              label: const Text(
-                                'Continue with Institutional SSO',
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: _ink,
-                                side: const BorderSide(color: _border),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(13),
-                                ),
-                                textStyle: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 18),
                           const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
@@ -675,31 +645,6 @@ class _FieldLabel extends StatelessWidget {
       fontWeight: FontWeight.w600,
     ),
   );
-}
-
-class _OrDivider extends StatelessWidget {
-  const _OrDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Row(
-      children: [
-        Expanded(child: Divider(color: Color(0xFFE5E7EB), height: 1)),
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: 14),
-          child: Text(
-            'OR',
-            style: TextStyle(
-              color: Color(0xFF9CA3AF),
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        Expanded(child: Divider(color: Color(0xFFE5E7EB), height: 1)),
-      ],
-    );
-  }
 }
 
 class _ErrorMessage extends StatelessWidget {

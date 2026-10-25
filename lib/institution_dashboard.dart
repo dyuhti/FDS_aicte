@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'notification_center.dart';
 import 'officer_dashboard.dart';
 
 enum InstitutionSubmissionStatus {
@@ -55,6 +56,7 @@ class InstitutionReleaseRequest {
     required this.reason,
     required this.submittedOn,
     required this.caseType,
+    required this.status,
   });
 
   final String id;
@@ -64,6 +66,7 @@ class InstitutionReleaseRequest {
   final String reason;
   final DateTime submittedOn;
   final String caseType;
+  final String status;
 }
 
 class InstitutionDemoStore extends ChangeNotifier {
@@ -89,8 +92,13 @@ class InstitutionDemoStore extends ChangeNotifier {
             record.institutionId == _institutionId &&
             record.caseType != 'FDR Submission',
       )
-      .map(
-        (record) => InstitutionReleaseRequest(
+      .map((record) {
+        final caseRecord = record.caseId == null
+            ? null
+            : _store.releaseCases
+                  .where((item) => item.caseId == record.caseId)
+                  .firstOrNull;
+        return InstitutionReleaseRequest(
           id: record.caseId ?? record.submissionId,
           fdrNumber: record.reference,
           requestType: record.caseType,
@@ -98,12 +106,14 @@ class InstitutionDemoStore extends ChangeNotifier {
           reason: record.requestReason ?? '',
           submittedOn: _parseSubmissionDate(record.submittedOn),
           caseType: record.caseType,
-        ),
-      )
+          status: caseRecord?.status ?? record.status.label,
+        );
+      })
       .toList(growable: false);
 
   void resetDemoData() {
     _store.resetDemoData();
+    NotificationCenter.instance.reset();
   }
 
   InstitutionSubmission? submissionById(String id) {
@@ -112,6 +122,24 @@ class InstitutionDemoStore extends ChangeNotifier {
       return null;
     }
     return _fromOfficerSubmission(submission);
+  }
+
+  InstitutionSubmission? submissionForCaseId(String caseId) {
+    final submissionId = _store.releaseCases
+        .where((record) => record.caseId == caseId)
+        .firstOrNull
+        ?.submissionId;
+    return submissionId == null ? null : submissionById(submissionId);
+  }
+
+  ReleaseCase? releaseCaseForSubmission(String submissionId) {
+    for (final record in _store.releaseCases) {
+      if (record.submissionId == submissionId &&
+          record.originalInstitutionId == _institutionId) {
+        return record;
+      }
+    }
+    return null;
   }
 
   InstitutionSubmission addSubmission({
@@ -337,20 +365,40 @@ class _InstitutionDashboardScreenState
     actions: [
       IconButton(
         tooltip: 'Notifications',
-        onPressed: () => showDialog<void>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Notifications'),
-            content: const Text('No new demo notifications.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-            ],
+        onPressed: () => Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => NotificationsPage(
+              role: NotificationRecipientRole.institution,
+              recipientId: _institutionId,
+              onOpenRelated: (notification) {
+                Navigator.of(context).pop();
+                final id = notification.relatedId;
+                if (id == null) return;
+                final store = InstitutionDemoStore.instance;
+                final record =
+                    store.submissionById(id) ?? store.submissionForCaseId(id);
+                if (record != null) {
+                  _openSubmissionFromNotification(context, record.id);
+                }
+              },
+            ),
           ),
         ),
-        icon: const Icon(Icons.notifications_none_rounded, color: _ink),
+        icon: AnimatedBuilder(
+          animation: NotificationCenter.instance,
+          builder: (context, _) => Badge(
+            isLabelVisible:
+                NotificationCenter.instance.unreadCount(
+                  NotificationRecipientRole.institution,
+                  recipientId: _institutionId,
+                ) >
+                0,
+            label: Text(
+              '${NotificationCenter.instance.unreadCount(NotificationRecipientRole.institution, recipientId: _institutionId)}',
+            ),
+            child: const Icon(Icons.notifications_none_rounded, color: _ink),
+          ),
+        ),
       ),
       PopupMenuButton<String>(
         tooltip: 'Institution administrator profile',
@@ -380,6 +428,14 @@ class _InstitutionDashboardScreenState
       ),
     ],
   );
+
+  void _openSubmissionFromNotification(BuildContext context, String id) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => InstitutionSubmissionDetailPage(submissionId: id),
+      ),
+    );
+  }
 }
 
 class _InstitutionHome extends StatelessWidget {
@@ -534,7 +590,7 @@ class _InstitutionHome extends StatelessWidget {
           const SizedBox(height: 8),
           _QuickAction(
             label: 'Request Release / Refund',
-            subtitle: 'Create a demo request draft',
+            subtitle: 'Create a release request',
             icon: Icons.account_balance_wallet_outlined,
             onTap: onReleaseRequest,
           ),
@@ -686,13 +742,20 @@ class InstitutionSubmissionDetailPage extends StatelessWidget {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: InstitutionDemoStore.instance,
     builder: (context, _) {
-      final record = InstitutionDemoStore.instance.submissionById(submissionId);
+      final store = InstitutionDemoStore.instance;
+      final record = store.submissionById(submissionId);
+      final fdrRecord = record == null
+          ? null
+          : DemoFdrPortalStore.instance.fdrRecordForSubmission(record.id);
+      final releaseCase = record == null
+          ? null
+          : store.releaseCaseForSubmission(record.id);
       return _InstitutionSubpage(
         title: 'Submission Details',
         child: record == null
             ? const _EmptyState(
                 title: 'Submission not found',
-                message: 'This demo record may no longer be available.',
+                message: 'This record may no longer be available.',
               )
             : ListView(
                 padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
@@ -712,6 +775,10 @@ class InstitutionSubmissionDetailPage extends StatelessWidget {
                       'Institution': _institutionName,
                       'Institution ID': record.institutionId,
                       'Case type': record.caseType,
+                      if (fdrRecord != null)
+                        'Maturity date': fdrRecord.maturityDate,
+                      if (fdrRecord?.parentFdrReference != null)
+                        'Renewed from': fdrRecord!.parentFdrReference!,
                       if (record.requestedAmount != null)
                         'Requested amount': _money(record.requestedAmount!),
                       if (record.retainedBalance != null)
@@ -756,6 +823,108 @@ class InstitutionSubmissionDetailPage extends StatelessWidget {
                       },
                     ),
                   ],
+                  if (releaseCase != null) ...[
+                    const SizedBox(height: 12),
+                    _InfoPanel(
+                      title: 'Required documents',
+                      rows: {
+                        for (final document in releaseCase.checklist)
+                          document.name: document.status,
+                      },
+                    ),
+                    for (final document in releaseCase.checklist)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            try {
+                              final checksum = await DemoFdrPortalStore.instance
+                                  .pickAndReplaceRequiredDocument(
+                                    caseId: releaseCase.caseId,
+                                    fileName: document.fileName,
+                                  );
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    checksum == null
+                                        ? 'Document selection cancelled.'
+                                        : '${document.name} uploaded. SHA-256: $checksum',
+                                  ),
+                                ),
+                              );
+                            } on ArgumentError catch (error) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(error.message.toString())),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.upload_file_outlined),
+                          label: Text('Replace ${document.name}'),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    _InfoPanel(
+                      title: 'Officer Remarks & Clarifications',
+                      rows: {
+                        'Case status': releaseCase.status,
+                        for (final clearance in releaseCase.clearances)
+                          clearance.name: _clearanceSummary(clearance),
+                      },
+                    ),
+                    if (releaseCase.history.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _InfoPanel(
+                        title: 'Case history',
+                        rows: {
+                          for (var index = 0; index < releaseCase.history.length; index++)
+                            '${releaseCase.history[index].action} · ${releaseCase.history[index].at.toLocal()}':
+                                '${releaseCase.history[index].actor}: ${releaseCase.history[index].remark}',
+                        },
+                      ),
+                    ],
+                    for (final clearance in releaseCase.clearances)
+                      for (final remark in clearance.remarkHistory)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: _InfoPanel(
+                            title: '${clearance.name} · ${remark.timestamp}',
+                            rows: {
+                              'Officer': remark.officerId,
+                              'Remark': remark.text,
+                              'Status': clearance.status,
+                            },
+                          ),
+                        ),
+                    for (final clearance in releaseCase.clearances)
+                      if (clearance.status == 'Clarification Requested')
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: OutlinedButton.icon(
+                            onPressed: () => _showClarificationResponse(
+                              context,
+                              submissionId: record.id,
+                              clearance: clearance,
+                            ),
+                            icon: const Icon(Icons.reply_outlined),
+                            label: Text('Respond to ${clearance.name}'),
+                          ),
+                        ),
+                    for (final clearance in releaseCase.clearances)
+                      if (clearance.response != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: _InfoPanel(
+                            title: '${clearance.name} response',
+                            rows: {
+                              'Response': clearance.response!,
+                              if (clearance.responseTimestamp != null)
+                                'Submitted': clearance.responseTimestamp!,
+                              'Status': clearance.status,
+                            },
+                          ),
+                        ),
+                  ],
                   if (record.status == InstitutionSubmissionStatus.rejected &&
                       record.caseType == 'FDR Submission') ...[
                     const SizedBox(height: 14),
@@ -785,6 +954,57 @@ class InstitutionSubmissionDetailPage extends StatelessWidget {
       );
     },
   );
+
+  Future<void> _showClarificationResponse(
+    BuildContext context, {
+    required String submissionId,
+    required ClearanceState clearance,
+  }) async {
+    final controller = TextEditingController();
+    final response = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Respond to ${clearance.name}'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 3,
+          maxLines: 5,
+          decoration: const InputDecoration(
+            labelText: 'Response',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (controller.text.trim().isEmpty) return;
+              Navigator.pop(context, controller.text.trim());
+            },
+            child: const Text('Submit response'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (response == null) return;
+    DemoFdrPortalStore.instance.respondToClarification(
+      submissionId: submissionId,
+      clearanceName: clearance.name,
+      response: response,
+    );
+  }
+}
+
+String _clearanceSummary(ClearanceState clearance) {
+  final updated = clearance.lastUpdated == null
+      ? ''
+      : ' · ${clearance.lastUpdated}';
+  return '${clearance.status}$updated\n${clearance.remark}';
 }
 
 class InstitutionCorrectionPage extends StatefulWidget {
@@ -879,7 +1099,6 @@ class _InstitutionCorrectionPageState extends State<InstitutionCorrectionPage> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
         children: [
-          const _DemoNotice(),
           const SizedBox(height: 14),
           TextFormField(
             controller: _bankController,
@@ -1132,8 +1351,7 @@ class _InstitutionReleaseRequestPageState
           const _DemoNotice(),
           const SizedBox(height: 12),
           const _InfoBanner(
-            text:
-                'Requests are stored as local demo drafts only. No release, refund, NOC, or officer approval is performed.',
+            text: 'Requests are saved locally until they are reviewed.',
           ),
           const SizedBox(height: 16),
           Form(
@@ -1244,7 +1462,7 @@ class _InstitutionReleaseRequestPageState
                   child: FilledButton.icon(
                     onPressed: _submit,
                     icon: const Icon(Icons.send_rounded),
-                    label: const Text('Save Demo Request'),
+                    label: const Text('Save Request'),
                   ),
                 ),
               ],
@@ -1290,8 +1508,7 @@ class _InstitutionReleaseList extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         const _InfoBanner(
-          text:
-              'Demo requests remain local drafts and do not alter officer release decisions.',
+          text: 'Requests remain saved locally until an officer reviews them.',
         ),
         const SizedBox(height: 12),
         if (requests.isEmpty)
@@ -1301,14 +1518,34 @@ class _InstitutionReleaseList extends StatelessWidget {
           )
         else
           for (final request in requests)
-            _InfoPanel(
-              title: '${request.requestType} request · ${request.id}',
-              rows: {
-                'FDR': request.fdrNumber,
-                'Amount': _money(request.amount),
-                'Submitted': _formatDate(request.submittedOn),
-                'Reason': request.reason,
-              },
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _InfoPanel(
+                  title: '${request.requestType} request · ${request.id}',
+                  rows: {
+                    'FDR': request.fdrNumber,
+                    'Amount': _money(request.amount),
+                    'Submitted': _formatDate(request.submittedOn),
+                    'Status': request.status,
+                    'Reason': request.reason,
+                  },
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute<void>(
+                        builder: (_) => InstitutionSubmissionDetailPage(
+                          submissionId: request.id,
+                        ),
+                      ),
+                    ),
+                    icon: const Icon(Icons.history_rounded),
+                    label: const Text('View history'),
+                  ),
+                ),
+              ],
             ),
       ],
     );
@@ -1754,10 +1991,7 @@ class _DemoNotice extends StatelessWidget {
   const _DemoNotice();
 
   @override
-  Widget build(BuildContext context) => const _InfoBanner(
-    text:
-        'Demo mode · Sample institution records are fictional and stored on this device only.',
-  );
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class _InfoBanner extends StatelessWidget {

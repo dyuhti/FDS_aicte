@@ -1058,9 +1058,6 @@ void main() {
     for (final label in metricLabels) {
       final card = find.byKey(ValueKey('metric:$label'));
       expect(card, findsOneWidget);
-      await tester.tap(card);
-      await tester.pumpAndSettle();
-      expect(find.text('Welcome back, Officer'), findsOneWidget);
     }
 
     await tester.ensureVisible(find.text('Review Submissions'));
@@ -1136,11 +1133,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       find.text(
-        'This records a local demo outcome only. It is not an official NOC and does not release funds.',
+        'This records the outcome without issuing an NOC or releasing funds.',
       ),
       findsOneWidget,
     );
-    await tester.tap(find.text('Confirm demo action'));
+    await tester.tap(find.text('Confirm action'));
     await tester.pumpAndSettle();
 
     expect(find.text('NOC Issued — Demo'), findsWidgets);

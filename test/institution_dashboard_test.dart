@@ -30,7 +30,6 @@ void main() {
       expect(find.text('Welcome back, Administrator'), findsOneWidget);
       expect(find.text('Example Institute of Technology'), findsWidgets);
       expect(find.text('INST-DEMO-0042'), findsOneWidget);
-      expect(find.textContaining('Demo mode'), findsOneWidget);
 
       final totalCard = find.byKey(
         const ValueKey('institution-metric:Total FDRs'),
@@ -119,7 +118,7 @@ void main() {
         find.byType(TextFormField).at(1),
         'Demo closure request',
       );
-      await tester.tap(find.text('Save Demo Request'));
+      await tester.tap(find.text('Save Request'));
       await tester.pumpAndSettle();
       expect(
         find.textContaining('Normal Release request · REL-'),

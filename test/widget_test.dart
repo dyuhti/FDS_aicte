@@ -69,7 +69,6 @@ void main() {
 
     expect(find.text('AICTE Officer Portal'), findsOneWidget);
     expect(find.text('Welcome back, Officer'), findsOneWidget);
-    expect(find.textContaining('Demo mode'), findsOneWidget);
     expect(find.text('Pending Verification'), findsOneWidget);
     expect(find.text('Deposit  ₹5,00,000', findRichText: true), findsOneWidget);
 
