@@ -29,7 +29,7 @@ void main() {
 
       expect(find.text('Welcome back, Administrator'), findsOneWidget);
       expect(find.text('Example Institute of Technology'), findsWidgets);
-      expect(find.text('INST-DEMO-0042'), findsOneWidget);
+      expect(find.text('INST-0042'), findsOneWidget);
 
       final totalCard = find.byKey(
         const ValueKey('institution-metric:Total FDRs'),
@@ -80,7 +80,7 @@ void main() {
         'FDR-EIT-NEW-9001',
       );
       await tester.enterText(find.byType(TextFormField).at(2), '275000');
-      await tester.tap(find.text('Save Demo Submission'));
+      await tester.tap(find.text('Save Submission'));
       await tester.pumpAndSettle();
 
       expect(find.text('My Submissions'), findsWidgets);
@@ -235,11 +235,11 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.textContaining('Officer Review Demo Bank', findRichText: true),
+      find.textContaining('Officer Review Bank', findRichText: true),
       findsOneWidget,
     );
     expect(
-      find.textContaining('INST-DEMO-0042', findRichText: true),
+      find.textContaining('INST-0042', findRichText: true),
       findsWidgets,
     );
 

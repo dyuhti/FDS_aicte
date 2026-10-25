@@ -574,6 +574,7 @@ class OfficerPortalShell extends StatelessWidget {
     this.onSignOut,
     this.onBack,
     this.bottomNavigationBar,
+    this.extraActions = const [],
   });
 
   final Widget body;
@@ -584,6 +585,7 @@ class OfficerPortalShell extends StatelessWidget {
   final VoidCallback? onSignOut;
   final VoidCallback? onBack;
   final Widget? bottomNavigationBar;
+  final List<Widget> extraActions;
 
   void _showDemoMessage(BuildContext context, String message) {
     ScaffoldMessenger.of(context)
@@ -653,6 +655,16 @@ class OfficerPortalShell extends StatelessWidget {
                             ),
                           ],
                         ),
+                      ),
+                      ...extraActions,
+                      IconButton(
+                        tooltip: 'Case History',
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const _CaseHistoryPage(),
+                          ),
+                        ),
+                        icon: const Icon(Icons.history_rounded),
                       ),
                       IconButton(
                         tooltip: 'Notifications',
@@ -757,24 +769,7 @@ class OfficerPortalShell extends StatelessWidget {
       ),
       body: AnimatedBuilder(
         animation: DemoFdrPortalStore.instance,
-        builder: (context, _) => Column(
-          children: [
-            if (DemoFdrPortalStore.instance.auditIntegrityBroken)
-              MaterialBanner(
-                content: const Text('Audit integrity issue detected. Open Audit Trail for details.'),
-                leading: const Icon(Icons.warning_amber_rounded),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).push<void>(
-                      MaterialPageRoute<void>(builder: (_) => const _AuditTrailPage()),
-                    ),
-                    child: const Text('Review'),
-                  ),
-                ],
-              ),
-            Expanded(child: body),
-          ],
-        ),
+        builder: (context, _) => body,
       ),
       bottomNavigationBar:
           bottomNavigationBar ??
@@ -957,50 +952,32 @@ class _DashboardHome extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  _SectionHeading(
+                  SummaryTile(
+                    icon: Icons.list_alt_rounded,
                     title: 'Action Queue',
-                    trailing:
-                        '${buildOfficerActionQueue(DemoFdrPortalStore.instance).length} items',
-                    actionLabel: 'View all',
-                    onAction: () => Navigator.of(context).push<void>(
+                    count: buildOfficerActionQueue(DemoFdrPortalStore.instance).length,
+                    subtitle: '${buildOfficerActionQueue(DemoFdrPortalStore.instance).where((item) => item.priority == 'High').length} high priority · ${buildOfficerActionQueue(DemoFdrPortalStore.instance).where((item) => item.priority != 'High').length} routine',
+                    accentColor: const Color(0xFFEA580C),
+                    onTap: () => Navigator.of(context).push<void>(
                       MaterialPageRoute<void>(
                         builder: (_) => const _FullActionQueuePage(),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  _OfficerActionQueue(
-                    items: buildOfficerActionQueue(DemoFdrPortalStore.instance),
-                    onOpen: (item) {
-                      final submission = DemoFdrPortalStore.instance
-                          .submissionById(item.relatedSubmissionId);
-                      if (submission != null) onReviewSubmission(submission);
-                    },
-                  ),
-                  const SizedBox(height: 20),
-                  _SectionHeading(
+                  const SizedBox(height: 10),
+                  SummaryTile(
+                    icon: Icons.timer_rounded,
                     title: 'Deadline Command Center',
-                    actionLabel: 'Run Reminder Scan',
-                    onAction: () {
-                      final created = DemoFdrPortalStore.instance
-                          .runReminderScan();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('$created reminder(s) generated'),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    DemoFdrPortalStore.instance.lastReminderScanAt == null
-                        ? 'Reminder scan not run yet'
-                        : '${DemoFdrPortalStore.instance.lastReminderCreated} new reminders sent · ${DemoFdrPortalStore.instance.lastReminderAlreadySent} already sent',
-                    style: const TextStyle(color: _muted, fontSize: 11),
-                  ),
-                  const SizedBox(height: 4),
-                  _DeadlineList(
-                    items: DemoFdrPortalStore.instance.deadlineItems,
+                    count: DemoFdrPortalStore.instance.deadlineItems.length,
+                    subtitle: DemoFdrPortalStore.instance.deadlineItems.isEmpty
+                        ? 'No deadlines due'
+                        : '${DemoFdrPortalStore.instance.deadlineItems.where((item) => item.status == MaturityStatus.critical).length} critical · ${DemoFdrPortalStore.instance.deadlineItems.where((item) => item.status == MaturityStatus.matured).length} matured · ${DemoFdrPortalStore.instance.deadlineItems.where((item) => item.status == MaturityStatus.expiringSoon).length} expiring soon',
+                    accentColor: const Color(0xFFD97706),
+                    onTap: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const _DeadlineCommandCenterPage(),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 20),
                   const _SectionHeading(title: 'Quick Actions'),
@@ -1036,7 +1013,7 @@ class _DashboardHome extends StatelessWidget {
                   const SizedBox(height: 21),
                   _SectionHeading(
                     title: 'Pending Verification',
-                    actionLabel: 'View all',
+                    actionLabel: 'View all (${repository.pendingSubmissions.length})',
                     onAction: () => onOpenPage(
                       'Pending Verification',
                       subtitle: 'All shared submissions awaiting review.',
@@ -1048,18 +1025,23 @@ class _DashboardHome extends StatelessWidget {
                     style: TextStyle(color: _muted, fontSize: 12),
                   ),
                   const SizedBox(height: 10),
-                  for (final submission in repository.pendingSubmissions)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 9),
-                      child: _SubmissionCard(
-                        submission: submission,
-                        onReview: () => onReviewSubmission(submission),
+                  if (repository.pendingSubmissions.isEmpty)
+                    const _InlineEmptyState(
+                      message: 'No pending submissions to review.',
+                    )
+                  else
+                    for (final submission in repository.pendingSubmissions.take(2))
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 9),
+                        child: _SubmissionCard(
+                          submission: submission,
+                          onReview: () => onReviewSubmission(submission),
+                        ),
                       ),
-                    ),
                   const SizedBox(height: 10),
                   _SectionHeading(
                     title: 'Recent Activity',
-                    trailing: 'Mock activity',
+                    trailing: 'Recent activity',
                   ),
                   const SizedBox(height: 8),
                   _ActivityCard(activities: repository.recentActivity),
@@ -1088,50 +1070,112 @@ class _InstitutionRegistryView extends StatefulWidget {
       _InstitutionRegistryViewState();
 }
 
-class _OfficerActionQueue extends StatelessWidget {
-  const _OfficerActionQueue({required this.items, required this.onOpen});
-
-  final List<ActionQueueItem> items;
-  final ValueChanged<ActionQueueItem> onOpen;
+class _CaseHistoryPage extends StatelessWidget {
+  const _CaseHistoryPage();
 
   @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) {
-      return const _InlineEmptyState(
-        message: 'No officer actions require attention.',
-      );
-    }
-    return Column(
-      children: [
-        for (final item in items.take(5))
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Card(
-              margin: EdgeInsets.zero,
-              child: ListTile(
-                dense: true,
-                leading: Icon(
-                  item.priority == 'High'
-                      ? Icons.priority_high_rounded
-                      : Icons.schedule_rounded,
-                  color: item.priority == 'High'
-                      ? const Color(0xFFB91C1C)
-                      : _orange,
-                ),
-                title: Text(
-                  item.reference,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                subtitle: Text('${item.institution}\n${item.reason}'),
-                isThreeLine: true,
-                trailing: TextButton(
-                  onPressed: () => onOpen(item),
-                  child: const Text('Open'),
-                ),
-              ),
-            ),
+    final events = DemoFdrPortalStore.instance.auditEntries
+        .map(
+          (entry) => (
+            title: entry.action,
+            actor: entry.actorRole,
+            time: entry.timestamp,
+            detail: entry.payload,
           ),
-      ],
+        )
+        .toList();
+
+    return OfficerPortalShell(
+      title: 'Case History',
+      body: events.isEmpty
+          ? const Center(child: Text('No history available.'))
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+              children: [
+                for (final event in events.reversed)
+                  Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: ListTile(
+                      leading: const Icon(Icons.history_rounded, color: _orange),
+                      title: Text(event.title),
+                      subtitle: Text('${event.actor} · ${event.time}\n${event.detail}'),
+                    ),
+                  ),
+              ],
+            ),
+    );
+  }
+}
+
+class _DeadlineCommandCenterPage extends StatelessWidget {
+  const _DeadlineCommandCenterPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final items = DemoFdrPortalStore.instance.deadlineItems;
+    return OfficerPortalShell(
+      title: 'Deadline Command Center',
+      body: AnimatedBuilder(
+        animation: DemoFdrPortalStore.instance,
+        builder: (context, _) {
+          final lastScan = DemoFdrPortalStore.instance.lastReminderScanAt;
+          final created = DemoFdrPortalStore.instance.lastReminderCreated;
+          final alreadySent = DemoFdrPortalStore.instance.lastReminderAlreadySent;
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: AppButton(
+                      label: 'Run Reminder Scan',
+                      variant: AppButtonVariant.primary,
+                      icon: Icons.notifications_active_rounded,
+                      onPressed: () {
+                        final created = DemoFdrPortalStore.instance.runReminderScan();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('$created reminder(s) created')),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                lastScan == null
+                    ? 'Last scan: Not run yet'
+                    : 'Last scan: ${lastScan.day} ${_monthName(lastScan.month)} ${lastScan.year}, ${lastScan.hour.toString().padLeft(2, '0')}:${lastScan.minute.toString().padLeft(2, '0')}',
+                style: const TextStyle(color: _muted, fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$created new reminders sent, $alreadySent already sent',
+                style: const TextStyle(color: _ink, fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 12),
+              for (final item in items)
+                Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: ListTile(
+                    title: Text('${item.submission.reference} · ${item.status.label}'),
+                    subtitle: Text('${item.submission.institution}\n${item.nextAction}'),
+                    isThreeLine: true,
+                    trailing: item.status == MaturityStatus.active || item.isRenewed
+                        ? null
+                        : TextButton(
+                            onPressed: () {
+                              // no-op placeholder for renewal action in page shell
+                            },
+                            child: const Text('Renew FDR'),
+                          ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
@@ -2279,7 +2323,7 @@ class _DetailPair extends StatelessWidget {
             style: const TextStyle(color: _muted),
           ),
           TextSpan(
-            text: value,
+            text: _cleanPortalLabel(value),
             style: TextStyle(
               color: emphasized ? _ink : const Color(0xFF4B5563),
               fontWeight: emphasized ? FontWeight.w700 : FontWeight.w500,
@@ -2580,7 +2624,7 @@ class _OfficerProfilePageState extends State<OfficerProfilePage> {
               ),
             ),
             icon: const Icon(Icons.route_outlined),
-            label: const Text('Demo Script'),
+            label: const Text('Workflow Guide'),
           ),
           OutlinedButton.icon(
             onPressed: () async {
@@ -2591,11 +2635,11 @@ class _OfficerProfilePageState extends State<OfficerProfilePage> {
               if (!mounted) return;
               setState(() {});
               messenger.showSnackBar(
-                const SnackBar(content: Text('Demo data reset.')),
+                const SnackBar(content: Text('Sample data reset.')),
               );
             },
             icon: const Icon(Icons.restart_alt_rounded),
-            label: const Text('Reset Demo Data'),
+            label: const Text('Reset Sample Data'),
           ),
           const SizedBox(height: 14),
           const Text(
@@ -2695,7 +2739,7 @@ class DemoScriptPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => OfficerPortalShell(
-    title: 'Demo Script',
+    title: 'Workflow Guide',
     body: ListView(
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
       children: [
@@ -3336,7 +3380,7 @@ class _SubmissionRecordCard extends StatelessWidget {
           const SizedBox(height: 5),
           _DetailPair(
             label: 'Action',
-            value: 'Demo approval by ${submission.approvedBy}',
+            value: 'Approval by ${submission.approvedBy}',
           ),
         ],
       ],
@@ -3392,6 +3436,8 @@ IconData _tabIcon(String title) => switch (title) {
 };
 
 class DemoFdrPortalStore extends ChangeNotifier {
+  static const _auditSchemaVersion = 1;
+
   DemoFdrPortalStore._({Clock clock = const SystemClock()}) : _clock = clock {
     NotificationCenter.instance.seedDemoNotifications();
   }
@@ -3882,6 +3928,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
         ..clear()
         ..addAll(rawEntries.whereType<Map<String, dynamic>>().map(_auditFromJson));
     }
+      _auditAnchor = null;
+      _auditBackup = null;
     final rawAnchor = await readJson(storage, 'aicte.auditAnchor');
     if (rawAnchor != null) {
       _auditAnchor = AuditChainAnchor(
@@ -3891,13 +3939,31 @@ class DemoFdrPortalStore extends ChangeNotifier {
       );
     }
     _auditIntegrity = verifyAuditChain(_auditEntries, anchor: _auditAnchor);
+    final storedVersion = int.tryParse(
+      await storage.read('aicte.auditSchemaVersion') ?? '',
+    );
+    final chainVersion = (stored?['schemaVersion'] as num?)?.toInt();
+    final version = storedVersion ?? chainVersion ?? 0;
+    if (version <= _auditSchemaVersion && _auditIntegrity!.isValid) {
+      await storage.write(
+        'aicte.auditSchemaVersion',
+        '$_auditSchemaVersion',
+      );
+    }
     notifyListeners();
   }
 
   Future<void> _persistAuditChain() async {
     await _auditStorage.write(
       'aicte.auditChain',
-      jsonEncode({'entries': _auditEntries.map(_auditToJson).toList()}),
+      jsonEncode({
+        'schemaVersion': _auditSchemaVersion,
+        'entries': _auditEntries.map(_auditToJson).toList(),
+      }),
+    );
+    await _auditStorage.write(
+      'aicte.auditSchemaVersion',
+      '$_auditSchemaVersion',
     );
     if (_auditEntries.isNotEmpty) {
       _auditAnchor = AuditChainAnchor(
@@ -3913,6 +3979,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
           'count': _auditAnchor!.count,
         }),
       );
+    } else {
+      await _auditStorage.delete('aicte.auditAnchor');
     }
     _auditIntegrity = verifyAuditChain(_auditEntries, anchor: _auditAnchor);
   }
@@ -7615,7 +7683,7 @@ class FdrVerificationService {
           message:
               'This FDR number already belongs to ${duplicateRecord.institution} under record ${duplicateRecord.fdrReference}.',
           description:
-              'The FDR reference clashes with a different institution in the demo dataset.',
+              'The FDR reference clashes with a different institution in the sample records.',
           recommendedAction:
               'Correct the FDR reference to a unique value or resolve the duplicate record before release approval.',
           affectedField: 'fdrNumber',
@@ -8395,6 +8463,27 @@ class _VerificationResultsPage extends StatefulWidget {
 }
 
 class _VerificationResultsPageState extends State<_VerificationResultsPage> {
+  Future<void> _runVerification() async {
+    final summary = DemoFdrPortalStore.instance.runCurrentVerification();
+    DemoFdrPortalStore.instance.appendAuditEntry(
+      action: 'Verification initiated',
+      associatedId: DemoFdrPortalStore.instance.currentSubmission.submissionId,
+      actorRole: 'Demo Officer',
+      payload: summary.statusText,
+    );
+    if (DemoFdrPortalStore.instance.releaseCase == null) {
+      DemoFdrPortalStore.instance.createReleaseCase();
+      DemoFdrPortalStore.instance.appendAuditEntry(
+        action: 'Release case created',
+        associatedId: 'REL-2026-00017',
+        actorRole: 'Demo Officer',
+        payload: 'Normal Release',
+      );
+    }
+    if (!mounted) return;
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = DemoFdrPortalStore.instance;
@@ -8581,145 +8670,139 @@ class _VerificationResultsPageState extends State<_VerificationResultsPage> {
             ),
           ),
           const SizedBox(height: 18),
-          if (!isBlocked)
-            FilledButton.icon(
-              onPressed: () {
-                if (DemoFdrPortalStore.instance.releaseCase == null) {
-                  DemoFdrPortalStore.instance.createReleaseCase();
-                  DemoFdrPortalStore.instance.appendAuditEntry(
-                    action: 'Release case created',
-                    associatedId: 'REL-2026-00017',
-                    actorRole: 'Demo Officer',
-                    payload: 'Normal Release',
-                  );
-                }
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const _ReleaseCasePage(),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.fact_check_rounded),
-              label: const Text('Open Release / Refund Case'),
-              style: FilledButton.styleFrom(
-                backgroundColor: _orange,
-                minimumSize: const Size.fromHeight(48),
-              ),
-            )
-          else ...[
-            OutlinedButton.icon(
-              onPressed: () {
-                if (DemoFdrPortalStore.instance.releaseCase == null) {
-                  DemoFdrPortalStore.instance.createReleaseCase();
-                  DemoFdrPortalStore.instance.appendAuditEntry(
-                    action: 'Release case created',
-                    associatedId: 'REL-2026-00017',
-                    actorRole: 'Demo Officer',
-                    payload: 'Normal Release; verification currently blocked',
-                  );
-                }
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const _ReleaseCasePage(),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.lock_outline_rounded),
-              label: const Text('Open Blocked Release Case'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _deepOrange,
-                minimumSize: const Size.fromHeight(44),
-              ),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: _line),
             ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 44,
-              child: OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const _CorrectDetailsPage(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Actions',
+                  style: TextStyle(
+                    color: _ink,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                icon: const Icon(Icons.edit_note_rounded),
-                label: const Text('Correct Details'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: _deepOrange,
-                  side: const BorderSide(color: Color(0xFFF4C29A)),
-                  minimumSize: const Size.fromHeight(44),
+                const SizedBox(height: 12),
+                AppButton(
+                  label: !store.verificationCurrent
+                      ? 'Correct Details'
+                      : isBlocked
+                      ? 'Open Blocked Release Case'
+                      : 'Open Release / Refund Case',
+                  variant: AppButtonVariant.primary,
+                  icon: Icons.checklist_rounded,
+                  onPressed: () {
+                    if (!store.verificationCurrent) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const _CorrectDetailsPage(),
+                        ),
+                      );
+                    } else {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const _ReleaseCasePage(),
+                        ),
+                      );
+                    }
+                  },
                 ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 44,
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  final summary = store.runCurrentVerification();
-                  store.appendAuditEntry(
-                    action: 'Verification rerun',
-                    associatedId: store.currentSubmission.submissionId,
-                    actorRole: 'Demo Officer',
-                    payload: summary.statusText,
-                  );
-                  setState(() {});
-                },
-                icon: const Icon(Icons.refresh_rounded),
-                label: Text(
-                  store.verificationCurrent
-                      ? 'Re-run Verification'
-                      : 'Run Verification',
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: _ink,
-                  side: const BorderSide(color: _line),
-                  minimumSize: const Size.fromHeight(44),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 44,
-              child: OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const _AuditTrailPage(),
+                if (isBlocked) ...[
+                  const SizedBox(height: 12),
+                  AppButton(
+                    label: 'Correct Details',
+                    variant: AppButtonVariant.secondary,
+                    icon: Icons.edit_note_rounded,
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const _CorrectDetailsPage(),
+                      ),
+                    ),
                   ),
+                ],
+                const SizedBox(height: 12),
+                GridView.count(
+                  shrinkWrap: true,
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  childAspectRatio: 2.2,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    AppButton(
+                      label: 'Run Verification',
+                      variant: AppButtonVariant.secondary,
+                      icon: Icons.play_arrow_rounded,
+                      onPressed: _runVerification,
+                    ),
+                    AppButton(
+                      label: 'Re-run Verification',
+                      variant: AppButtonVariant.secondary,
+                      icon: Icons.refresh_rounded,
+                      onPressed: () {
+                        final verificationSummary = store.runCurrentVerification();
+                        store.appendAuditEntry(
+                          action: 'Verification rerun',
+                          associatedId: store.currentSubmission.submissionId,
+                          actorRole: 'Officer',
+                          payload: verificationSummary.statusText,
+                        );
+                        setState(() {});
+                      },
+                    ),
+                    AppButton(
+                      label: 'View Audit Trail',
+                      variant: AppButtonVariant.secondary,
+                      icon: Icons.history_rounded,
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const _AuditTrailPage(),
+                        ),
+                      ),
+                    ),
+                    AppButton(
+                      label: 'Open Release / Refund Case',
+                      variant: AppButtonVariant.secondary,
+                      icon: Icons.fact_check_rounded,
+                      enabled: !isBlocked,
+                      onPressed: !isBlocked
+                          ? () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const _ReleaseCasePage(),
+                              ),
+                            )
+                          : null,
+                    ),
+                  ],
                 ),
-                icon: const Icon(Icons.history_rounded),
-                label: const Text('View Audit Trail'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: _ink,
-                  side: const BorderSide(color: _line),
-                  minimumSize: const Size.fromHeight(44),
+                const SizedBox(height: 12),
+                const Divider(),
+                const SizedBox(height: 12),
+                AppButton(
+                  label: 'Return to Institution for Correction',
+                  variant: AppButtonVariant.destructive,
+                  icon: Icons.assignment_return_outlined,
+                  onPressed: () {
+                    final submission = store.submissionById(record.submissionId);
+                    if (submission == null) return;
+                    store.rejectSubmission(
+                      record.submissionId,
+                      reason: summary.issues
+                          .map((issue) => issue.message)
+                          .join('; '),
+                    );
+                    Navigator.of(context).pop();
+                  },
                 ),
-              ),
+              ],
             ),
-          ],
-          if (store.submissionById(record.submissionId)?.caseType ==
-                  'FDR Submission' &&
-              store.submissionById(record.submissionId)?.status !=
-                  VerificationStatus.rejected &&
-              store.submissionById(record.submissionId)?.status !=
-                  VerificationStatus.approved) ...[
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () {
-                store.rejectSubmission(
-                  record.submissionId,
-                  reason: summary.issues
-                      .map((issue) => issue.message)
-                      .join('; '),
-                );
-                Navigator.of(context).pop();
-              },
-              icon: const Icon(Icons.assignment_return_outlined),
-              label: const Text('Return to Institution for Correction (Demo)'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFFB91C1C),
-                minimumSize: const Size.fromHeight(44),
-              ),
-            ),
-          ],
+          ),
         ],
       ),
     );
@@ -9102,7 +9185,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Simulate FDR approval?'),
+        title: const Text('Approve FDR submission?'),
         content: const Text(
           'This records an approved status. It does not transfer funds.',
         ),
@@ -9131,7 +9214,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
       builder: (context) => AlertDialog(
         title: const Text('Simulate partial release approval?'),
         content: Text(
-          'Record a demo decision for ₹${_formatCurrency(current.requestedReleaseAmount)} and retain ₹${_formatCurrency(current.retainedBalance)}. No funds will be transferred and this is not an official approval.',
+          'Record a decision for ₹${_formatCurrency(current.requestedReleaseAmount)} and retain ₹${_formatCurrency(current.retainedBalance)}. No funds will be transferred and this is not an official approval.',
         ),
         actions: [
           TextButton(
@@ -9165,7 +9248,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
       builder: (context) => AlertDialog(
         title: const Text('Simulate merger approval?'),
         content: Text(
-          'Record a demo relationship from ${current.institution} (${current.originalInstitutionId}) to ${current.successorInstitution} (${current.successorInstitutionId}). This has no legal or official effect and does not transfer or modify the original FDR.',
+          'Record a relationship from ${current.institution} (${current.originalInstitutionId}) to ${current.successorInstitution} (${current.successorInstitutionId}). This has no legal or official effect and does not transfer or modify the original FDR.',
         ),
         actions: [
           TextButton(
@@ -9816,14 +9899,14 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                         ),
                       ),
                       const Text(
-                        'Demo decision only. No real funds were transferred.',
+                        'Recorded decision only. No real funds were transferred.',
                         style: TextStyle(color: _muted, fontSize: 10),
                       ),
                     ],
                     if (isMerger && caseApproved) ...[
                       const SizedBox(height: 8),
                       Text(
-                        'Demo relationship recorded: ${record.institution} (${record.originalInstitutionId}) → ${record.successorInstitution} (${record.successorInstitutionId})',
+                        'Relationship recorded: ${record.institution} (${record.originalInstitutionId}) → ${record.successorInstitution} (${record.successorInstitutionId})',
                         style: const TextStyle(
                           color: Color(0xFF166534),
                           fontSize: 12,
@@ -9831,7 +9914,7 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                         ),
                       ),
                       Text(
-                        'Original FDR ${record.originalFdrReference} remains preserved. This demo record has no legal or official effect.',
+                        'Original FDR ${record.originalFdrReference} remains preserved. This recorded relationship has no legal or official effect.',
                         style: const TextStyle(color: _muted, fontSize: 10),
                       ),
                     ],
@@ -9918,8 +10001,8 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                           icon: const Icon(Icons.verified_rounded),
                           label: Text(
                             fdrApproved
-                                ? 'FDR Approved — Demo'
-                                : 'Approve FDR Submission (Demo)',
+                                ? 'FDR Approved'
+                                : 'Approve FDR Submission',
                           ),
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFF15803D),
@@ -9960,9 +10043,9 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                           icon: const Icon(Icons.verified_outlined),
                           label: Text(
                             nocIssued
-                                ? 'NOC Issued — Demo'
+                                ? 'NOC Issued'
                                 : caseApproved
-                                ? record.status
+                                ? _cleanPortalLabel(record.status)
                                 : isProgressiveClosure
                                 ? 'Simulate Partial Release Approval'
                                 : isMerger
@@ -10053,21 +10136,7 @@ class _DemoPill extends StatelessWidget {
   const _DemoPill();
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-    decoration: BoxDecoration(
-      color: const Color(0xFFFFF1E4),
-      borderRadius: BorderRadius.circular(20),
-    ),
-    child: const Text(
-      'DEMO DATA',
-      style: TextStyle(
-        color: _deepOrange,
-        fontSize: 9,
-        fontWeight: FontWeight.w800,
-      ),
-    ),
-  );
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class _InlineNotice extends StatelessWidget {
@@ -10647,11 +10716,11 @@ class _AuditTrailPageState extends State<_AuditTrailPage> {
                     style: const TextStyle(color: _muted, fontSize: 10),
                   ),
                   Text(
-                    'Actor: ${entry.actorRole}',
+                    'Actor: ${_cleanPortalLabel(entry.actorRole)}',
                     style: const TextStyle(color: _muted, fontSize: 10),
                   ),
                   Text(
-                    'Action: ${entry.action}',
+                    'Action: ${_cleanPortalLabel(entry.action)}',
                     style: const TextStyle(
                       color: _ink,
                       fontSize: 11,
@@ -10659,12 +10728,12 @@ class _AuditTrailPageState extends State<_AuditTrailPage> {
                     ),
                   ),
                   Text(
-                    'Associated: ${entry.associatedId}',
+                    'Associated: ${_cleanPortalLabel(entry.associatedId)}',
                     style: const TextStyle(color: _muted, fontSize: 10),
                   ),
                   if (entry.payload.isNotEmpty)
                     Text(
-                      'Detail: ${entry.payload}',
+                      'Detail: ${_cleanPortalLabel(entry.payload)}',
                       style: const TextStyle(color: _muted, fontSize: 10),
                     ),
                   const SizedBox(height: 8),
@@ -10726,7 +10795,7 @@ class _SectionCard extends StatelessWidget {
                 ),
                 Expanded(
                   child: Text(
-                    row.value,
+                    _cleanPortalLabel(row.value),
                     style: const TextStyle(
                       color: _ink,
                       fontSize: 11,
@@ -10983,10 +11052,12 @@ int _parseCurrency(String amount) =>
     int.tryParse(amount.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
 
 String _cleanPortalLabel(String value) => value
-    .replaceAll(' — Demo', '')
-    .replaceAll(' in demo mode', '')
-    .replaceAll('Demo ', '')
-    .replaceAll('demo ', '');
+  .replaceAll('INST-DEMO-', 'INST-')
+  .replaceAll(RegExp(r'\b(demo|live|mock)\b', caseSensitive: false), '')
+  .replaceAll(RegExp(r'\s+'), ' ')
+  .replaceAll(RegExp(r'\s*[-—–]\s*([,.;])'), r'$1')
+  .replaceAll(RegExp(r'\s*[-—–]\s*$'), '')
+  .trim();
 
 String _statusLabel(SubmissionStatus status) => switch (status) {
   SubmissionStatus.pendingReview => 'Pending Review',

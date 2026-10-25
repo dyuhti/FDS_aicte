@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'notification_center.dart';
 import 'officer_dashboard.dart';
+import 'portal_foundations.dart';
 
 enum InstitutionSubmissionStatus {
   pending,
@@ -9,6 +10,20 @@ enum InstitutionSubmissionStatus {
   approved,
   rejected,
   actionRequired,
+}
+
+class InstitutionHistoryEvent {
+  const InstitutionHistoryEvent({
+    required this.title,
+    required this.actor,
+    required this.time,
+    required this.remark,
+  });
+
+  final String title;
+  final String actor;
+  final String time;
+  final String remark;
 }
 
 class InstitutionSubmission {
@@ -140,6 +155,25 @@ class InstitutionDemoStore extends ChangeNotifier {
       }
     }
     return null;
+  }
+
+  List<InstitutionHistoryEvent> caseHistoryForInstitution(String institutionId) {
+    final events = <InstitutionHistoryEvent>[];
+    for (final record in _store.releaseCases) {
+      if (record.originalInstitutionId != institutionId) continue;
+      for (final event in record.history) {
+        events.add(
+          InstitutionHistoryEvent(
+            title: event.action,
+            actor: event.actor,
+            time: event.at.toLocal().toString(),
+            remark: event.remark,
+          ),
+        );
+      }
+    }
+    events.sort((a, b) => b.time.compareTo(a.time));
+    return events;
   }
 
   InstitutionSubmission addSubmission({
@@ -338,7 +372,7 @@ class _InstitutionDashboardScreenState
           ),
         ),
         const SizedBox(width: 10),
-        const Expanded(
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -354,7 +388,7 @@ class _InstitutionDashboardScreenState
                 ),
               ),
               Text(
-                _institutionId,
+                _institutionId.replaceFirst('INST-DEMO-', 'INST-'),
                 style: TextStyle(color: _muted, fontSize: 10, height: 1.4),
               ),
             ],
@@ -363,6 +397,15 @@ class _InstitutionDashboardScreenState
       ],
     ),
     actions: [
+      IconButton(
+        tooltip: 'Case History',
+        onPressed: () => Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => const _InstitutionCaseHistoryPage(),
+          ),
+        ),
+        icon: const Icon(Icons.history_rounded, color: _ink),
+      ),
       IconButton(
         tooltip: 'Notifications',
         onPressed: () => Navigator.of(context).push<void>(
@@ -595,20 +638,34 @@ class _InstitutionHome extends StatelessWidget {
             onTap: onReleaseRequest,
           ),
           const SizedBox(height: 22),
-          const _SectionHeading(title: 'Deadline Command Center'),
-          const SizedBox(height: 8),
-          const _InstitutionDeadlineCenter(),
+          SummaryTile(
+            icon: Icons.timer_rounded,
+            title: 'Deadline Command Center',
+            count: DemoFdrPortalStore.instance.deadlineItems
+                .where((item) => item.submission.institutionId == _institutionId)
+                .length,
+            subtitle: '4 FDRs · 1 needs review date',
+            accentColor: const Color(0xFFEA580C),
+            onTap: () => Navigator.of(context).push<void>(
+              MaterialPageRoute<void>(
+                builder: (_) => const _InstitutionDeadlineCenterPage(),
+              ),
+            ),
+          ),
           if (attention.isNotEmpty) ...[
-            const SizedBox(height: 22),
-            const _SectionHeading(title: 'Items Requiring Attention'),
-            const SizedBox(height: 8),
-            for (final record in attention)
-              for (final issue in record.issues)
-                _AttentionRow(
-                  issue: issue,
-                  record: record,
-                  onTap: () => onOpenSubmission(record),
+            const SizedBox(height: 14),
+            SummaryTile(
+              icon: Icons.warning_amber_rounded,
+              title: 'Items Requiring Attention',
+              count: attention.fold<int>(0, (sum, record) => sum + record.issues.length),
+              subtitle: '5 items need action',
+              accentColor: const Color(0xFFB91C1C),
+              onTap: () => Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  builder: (_) => const _InstitutionAttentionPage(),
                 ),
+              ),
+            ),
           ],
           const SizedBox(height: 22),
           _SectionHeading(
@@ -623,7 +680,7 @@ class _InstitutionHome extends StatelessWidget {
               message: 'Submit a new FDR to see it listed here.',
             )
           else
-            for (final record in recent)
+            for (final record in recent.take(2))
               Padding(
                 padding: const EdgeInsets.only(bottom: 9),
                 child: _InstitutionSubmissionTile(
@@ -637,46 +694,6 @@ class _InstitutionHome extends StatelessWidget {
   }
 }
 
-class _InstitutionDeadlineCenter extends StatelessWidget {
-  const _InstitutionDeadlineCenter();
-
-  @override
-  Widget build(BuildContext context) {
-    final store = InstitutionDemoStore.instance;
-    final deadlines = calculateFdrDeadlines(
-      store._store.dashboardSubmissions.where(
-        (submission) => submission.institutionId == _institutionId,
-      ),
-    );
-    return Column(
-      children: [
-        for (final item in deadlines)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(
-              item.status == MaturityStatus.matured || item.status == MaturityStatus.critical
-                  ? Icons.warning_amber_rounded
-                  : Icons.event_outlined,
-              color: item.status == MaturityStatus.active
-                  ? const Color(0xFF15803D)
-                  : const Color(0xFFB45309),
-            ),
-            title: Text('${item.submission.reference} · ${item.status.label}'),
-            subtitle: Text(item.isRenewed ? 'Renewed parent FDR' : item.nextAction),
-            trailing: item.status == MaturityStatus.active || item.isRenewed
-                ? null
-                : TextButton(
-                    onPressed: () => _showInstitutionRenewalDialog(
-                      context,
-                      item.submission.submissionId,
-                    ),
-                    child: const Text('Renew'),
-                  ),
-          ),
-      ],
-    );
-  }
-}
 
 Future<void> _showInstitutionRenewalDialog(
   BuildContext context,
@@ -731,6 +748,133 @@ Future<void> _showInstitutionRenewalDialog(
   amount.dispose();
   tenure.dispose();
   issue.dispose();
+}
+
+class _InstitutionDeadlineCenterPage extends StatelessWidget {
+  const _InstitutionDeadlineCenterPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final deadlines = calculateFdrDeadlines(
+      DemoFdrPortalStore.instance.dashboardSubmissions.where(
+        (submission) => submission.institutionId == _institutionId,
+      ),
+    );
+
+    return Scaffold(
+      backgroundColor: _paper,
+      appBar: AppBar(
+        backgroundColor: _paper,
+        title: const Text('Deadline Command Center'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(18),
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: MaturityStatus.values
+                .map(
+                  (status) => ChoiceChip(
+                    label: Text(status.label),
+                    selected: status == MaturityStatus.active,
+                    onSelected: (_) {},
+                  ),
+                )
+                .toList(),
+          ),
+          const SizedBox(height: 12),
+          for (final item in deadlines.take(6))
+            Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
+                title: Text('${item.submission.reference} · ${item.status.label}'),
+                subtitle: Text(item.nextAction),
+                trailing: item.status == MaturityStatus.active || item.isRenewed
+                    ? null
+                    : TextButton(
+                        onPressed: () => _showInstitutionRenewalDialog(
+                          context,
+                          item.submission.submissionId,
+                        ),
+                        child: const Text('Renew'),
+                      ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InstitutionAttentionPage extends StatelessWidget {
+  const _InstitutionAttentionPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final records = InstitutionDemoStore.instance.submissions
+        .where((record) => record.institutionId == _institutionId)
+        .where((record) => record.issues.isNotEmpty)
+        .toList();
+
+    return Scaffold(
+      backgroundColor: _paper,
+      appBar: AppBar(
+        backgroundColor: _paper,
+        title: const Text('Items Requiring Attention'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(18),
+        children: [
+          for (final record in records) ...[
+            for (final issue in record.issues)
+              ListTile(
+                title: Text(issue),
+                subtitle: Text('${record.fdrNumber} · ${record.status.name}'),
+                onTap: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(
+                    builder: (_) => InstitutionSubmissionDetailPage(
+                      submissionId: record.id,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _InstitutionCaseHistoryPage extends StatelessWidget {
+  const _InstitutionCaseHistoryPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final store = InstitutionDemoStore.instance;
+    final events = store.caseHistoryForInstitution(_institutionId);
+
+    return Scaffold(
+      backgroundColor: _paper,
+      appBar: AppBar(
+        backgroundColor: _paper,
+        title: const Text('Case History'),
+      ),
+      body: events.isEmpty
+          ? const Center(child: Text('No history for this institution yet.'))
+          : ListView(
+              padding: const EdgeInsets.all(18),
+              children: [
+                for (final event in events)
+                  ListTile(
+                    leading: const Icon(Icons.event_note_rounded),
+                    title: Text(event.title),
+                    subtitle: Text('${event.actor} · ${event.time}'),
+                  ),
+              ],
+            ),
+    );
+  }
 }
 
 class _InstitutionSubmissionList extends StatelessWidget {
@@ -1315,7 +1459,7 @@ class _InstitutionNewSubmissionPageState
     Navigator.of(context).pop(true);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${submission.fdrNumber} added to demo submissions.'),
+        content: Text('${submission.fdrNumber} added to submissions.'),
       ),
     );
   }
@@ -1338,7 +1482,7 @@ class _InstitutionNewSubmissionPageState
         ),
         const SizedBox(height: 5),
         const Text(
-          'Enter receipt details. This demo saves the record locally as Pending Verification.',
+          'Enter receipt details. The record is saved locally as Pending Verification.',
           style: TextStyle(color: _muted, fontSize: 13, height: 1.45),
         ),
         const SizedBox(height: 18),
@@ -1382,7 +1526,7 @@ class _InstitutionNewSubmissionPageState
                 child: FilledButton.icon(
                   onPressed: _submit,
                   icon: const Icon(Icons.send_rounded),
-                  label: const Text('Save Demo Submission'),
+                  label: const Text('Save Submission'),
                 ),
               ),
             ],
@@ -1960,47 +2104,6 @@ class _QuickAction extends StatelessWidget {
   );
 }
 
-class _AttentionRow extends StatelessWidget {
-  const _AttentionRow({
-    required this.issue,
-    required this.record,
-    required this.onTap,
-  });
-
-  final String issue;
-  final InstitutionSubmission record;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => ListTile(
-    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
-    visualDensity: VisualDensity.compact,
-    tileColor: const Color(0xFFFFF7ED),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(10),
-      side: const BorderSide(color: Color(0xFFFED7AA)),
-    ),
-    leading: const Icon(
-      Icons.warning_amber_rounded,
-      color: Color(0xFFB45309),
-      size: 20,
-    ),
-    title: Text(
-      issue,
-      style: const TextStyle(
-        color: _ink,
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-      ),
-    ),
-    subtitle: Text(
-      record.fdrNumber,
-      style: const TextStyle(color: _muted, fontSize: 11),
-    ),
-    trailing: const Icon(Icons.chevron_right_rounded, color: _muted, size: 18),
-    onTap: onTap,
-  );
-}
 
 class _StatusPill extends StatelessWidget {
   const _StatusPill({required this.status});

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 abstract interface class Clock {
@@ -233,3 +234,252 @@ class DemoAuthService implements AuthService {
 }
 
 final AuthService portalAuthService = DemoAuthService();
+
+class SummaryTile extends StatelessWidget {
+  const SummaryTile({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.count,
+    required this.subtitle,
+    this.onTap,
+    this.accentColor,
+  });
+
+  final IconData icon;
+  final String title;
+  final int count;
+  final String subtitle;
+  final VoidCallback? onTap;
+  final Color? accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = accentColor ?? const Color(0xFFF97316);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: Color(0xFF1F2937),
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          '$count',
+                          style: TextStyle(
+                            color: color,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(
+              Icons.chevron_right_rounded,
+              size: 18,
+              color: Color(0xFF6B7280),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum AppButtonVariant { primary, secondary, destructive }
+
+class AppButton extends StatelessWidget {
+  const AppButton({
+    super.key,
+    required this.label,
+    this.variant = AppButtonVariant.primary,
+    this.onPressed,
+    this.icon,
+    this.enabled = true,
+    this.fullWidth = true,
+    this.maxLines = 2,
+  });
+
+  final String label;
+  final AppButtonVariant variant;
+  final VoidCallback? onPressed;
+  final IconData? icon;
+  final bool enabled;
+  final bool fullWidth;
+  final int maxLines;
+
+  static const double _height = 48;
+  static const double _radius = 12;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDisabled = !enabled || onPressed == null;
+    final button = switch (variant) {
+      AppButtonVariant.primary => FilledButton(
+          onPressed: isDisabled ? null : onPressed,
+          style: FilledButton.styleFrom(
+            backgroundColor: isDisabled ? const Color(0xFFE5E7EB) : const Color(0xFFF97316),
+            foregroundColor: Colors.white,
+            minimumSize: const Size.fromHeight(_height),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(_radius),
+            ),
+          ),
+          child: _AppButtonContent(
+            label: label,
+            icon: icon,
+            isDisabled: isDisabled,
+            textColor: Colors.white,
+            maxLines: maxLines,
+          ),
+        ),
+      AppButtonVariant.secondary => OutlinedButton(
+          onPressed: isDisabled ? null : onPressed,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: isDisabled ? const Color(0xFF9CA3AF) : const Color(0xFFF97316),
+            side: BorderSide(
+              color: isDisabled ? const Color(0xFFE5E7EB) : const Color(0xFFF7C7A3),
+            ),
+            minimumSize: const Size.fromHeight(_height),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(_radius),
+            ),
+          ),
+          child: _AppButtonContent(
+            label: label,
+            icon: icon,
+            isDisabled: isDisabled,
+            textColor: isDisabled ? const Color(0xFF9CA3AF) : const Color(0xFFF97316),
+            maxLines: maxLines,
+          ),
+        ),
+      AppButtonVariant.destructive => OutlinedButton(
+          onPressed: isDisabled ? null : onPressed,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: isDisabled ? const Color(0xFF9CA3AF) : const Color(0xFFB91C1C),
+            side: BorderSide(
+              color: isDisabled ? const Color(0xFFE5E7EB) : const Color(0xFFFCA5A5),
+            ),
+            minimumSize: const Size.fromHeight(_height),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(_radius),
+            ),
+          ),
+          child: _AppButtonContent(
+            label: label,
+            icon: icon,
+            isDisabled: isDisabled,
+            textColor: isDisabled ? const Color(0xFF9CA3AF) : const Color(0xFFB91C1C),
+            maxLines: maxLines,
+          ),
+        ),
+    };
+
+    if (!fullWidth) {
+      return SizedBox(height: _height, child: button);
+    }
+    return SizedBox(width: double.infinity, child: button);
+  }
+}
+
+class _AppButtonContent extends StatelessWidget {
+  const _AppButtonContent({
+    required this.label,
+    required this.icon,
+    required this.isDisabled,
+    required this.maxLines,
+    required this.textColor,
+  });
+
+  final String label;
+  final IconData? icon;
+  final bool isDisabled;
+  final int maxLines;
+  final Color textColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = <Widget>[];
+    if (icon != null) {
+      content.add(Icon(icon, size: 18, color: textColor));
+      content.add(const SizedBox(width: 8));
+    }
+    content.add(
+      Flexible(
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          maxLines: maxLines,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: textColor,
+          ),
+        ),
+      ),
+    );
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: content,
+    );
+  }
+}

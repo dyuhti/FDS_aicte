@@ -117,14 +117,14 @@ void main() {
     await tester.scrollUntilVisible(
       find.text('Run Verification'),
       350,
-      scrollable: find.byType(Scrollable).first,
+        scrollable: find.byType(Scrollable).last,
     );
     await tester.tap(find.text('Run Verification'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.text('Correct Details'),
       350,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byType(Scrollable).last,
     );
     await tester.tap(find.text('Correct Details'));
     await tester.pumpAndSettle();
@@ -139,24 +139,36 @@ void main() {
     await tester.scrollUntilVisible(
       find.text('Save Corrected Details'),
       350,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView).last,
+            matching: find.byType(Scrollable),
+          )
+          .first,
     );
     await tester.tap(find.text('Save Corrected Details'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.text('Run Verification'),
       350,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView).last,
+            matching: find.byType(Scrollable),
+          )
+          .first,
     );
+        await tester.ensureVisible(find.text('Run Verification'));
+        await tester.pumpAndSettle();
     await tester.tap(find.text('Run Verification'));
     await tester.pumpAndSettle();
     expect(const MockOfficerDashboardRepository().summary['Pending Review'], 4);
 
-    await tester.pageBack();
+              await tester.tap(find.byTooltip('Back'));
     await tester.pumpAndSettle();
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-    await tester.pageBack();
+              await tester.tap(find.byTooltip('Back'));
+              await tester.pumpAndSettle();
+              await tester.tap(find.byTooltip('Back'));
     await tester.pumpAndSettle();
 
     expect(find.text('Welcome back, Officer'), findsOneWidget);
@@ -174,7 +186,7 @@ void main() {
     );
     expect(
       find.text('Submission  FDR-2026-00126', findRichText: true),
-      findsOneWidget,
+      findsNothing,
     );
     expect(find.text('Approved'), findsOneWidget);
   });

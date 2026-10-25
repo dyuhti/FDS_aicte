@@ -221,6 +221,37 @@ void main() {
   });
 
   group('F4 audit, checksums and permissions', () {
+    test('audit migration preserves valid history and clears stale anchors', () async {
+      final store = DemoFdrPortalStore.instance;
+      final legacyStorage = MemoryLocalStorage();
+      await store.initializeAuditPersistence(legacyStorage);
+      store.appendAuditEntry(
+        action: 'legacy-persist-test',
+        associatedId: 'S',
+        actorRole: 'Officer',
+      );
+      await store.flushPersistence();
+
+      final raw = jsonDecode(
+        (await legacyStorage.read('aicte.auditChain'))!,
+      ) as Map<String, dynamic>;
+      raw.remove('schemaVersion');
+      await legacyStorage.write('aicte.auditChain', jsonEncode(raw));
+      await legacyStorage.delete('aicte.auditSchemaVersion');
+      final legacyCount = store.auditEntries.length;
+
+      await store.initializeAuditPersistence(legacyStorage);
+      expect(store.auditIntegrity?.isValid, isTrue);
+      expect(store.auditEntries, hasLength(legacyCount));
+      expect(await legacyStorage.read('aicte.auditSchemaVersion'), '1');
+
+      final emptyStorage = MemoryLocalStorage();
+      await store.initializeAuditPersistence(emptyStorage);
+      expect(store.auditEntries, isEmpty);
+      expect(store.auditIntegrity?.isValid, isTrue);
+      expect(await emptyStorage.read('aicte.auditAnchor'), isNull);
+    });
+
     test('audit chain persists across reload; tamper and truncation report precise index', () async {
       final storage = MemoryLocalStorage();
       await store.initializeAuditPersistence(storage);
@@ -318,8 +349,8 @@ void main() {
     await tester.ensureVisible(find.text('Sign In to Officer Portal'));
     await tester.tap(find.text('Sign In to Officer Portal'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('View all').first);
-    await tester.tap(find.text('View all').first);
+    await tester.ensureVisible(find.text('Action Queue'));
+    await tester.tap(find.text('Action Queue'));
     await tester.pumpAndSettle();
     expect(find.text('Officer Action Queue'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);

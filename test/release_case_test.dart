@@ -973,11 +973,6 @@ void main() {
         400,
         scrollable: find.byType(Scrollable).last,
       );
-      await tester.fling(
-        find.byType(ListView).last,
-        const Offset(0, -300),
-        1000,
-      );
       await tester.tap(openReleaseButton);
       await tester.pumpAndSettle();
 
@@ -1110,11 +1105,6 @@ void main() {
       400,
       scrollable: find.byType(Scrollable).last,
     );
-    await tester.fling(
-      find.byType(ListView).last,
-      const Offset(0, -300),
-      1000,
-    );
     await tester.tap(openReleaseButton);
     await tester.pumpAndSettle();
 
@@ -1140,7 +1130,7 @@ void main() {
     await tester.tap(find.text('Confirm action'));
     await tester.pumpAndSettle();
 
-    expect(find.text('NOC Issued — Demo'), findsWidgets);
+    expect(find.text('NOC Issued'), findsWidgets);
     expect(
       store.auditEntries.any(
         (entry) =>
