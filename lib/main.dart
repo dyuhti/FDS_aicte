@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 import 'institution_dashboard.dart';
 import 'officer_dashboard.dart';
 import 'portal_foundations.dart';
+import 'db/connection.dart';
+import 'db/seed.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await seedDatabase(getDb());
   final storage = await SharedPreferencesLocalStorage.create();
   await DemoFdrPortalStore.instance.initializeReminderPersistence(storage);
   await DemoFdrPortalStore.instance.initializeAuditPersistence(storage);
