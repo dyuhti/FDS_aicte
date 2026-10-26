@@ -129,8 +129,7 @@ Tamper-evident audit record
 |---|---|
 | **Institution** | Submit FDRs, enter bank/amount/maturity/lien details, attach documents, track status, view verification issues, respond to correction requests, request release/refund/progressive closure/merger handling, receive notifications, track expiries and renewals |
 | **AICTE Officer** | Dashboard metrics, review pending submissions, run verification, compare sources, manage discrepancies, request corrections, approve/reject, manage release cases, check clearances, issue NOC-related actions, view reports, export data, verify audit integrity |
-| **Grievance Cell** | Review grievance-related cases, add remarks, approve/reject clearance, return cases for more information |
-| **Vigilance Cell** | Review flagged/high-risk cases, add observations, approve/reject clearance, escalate suspicious cases, view audit history |
+
 
 Role permissions are enforced on the server for every API request, not only in the Flutter UI.
 
