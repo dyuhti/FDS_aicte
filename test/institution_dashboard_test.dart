@@ -73,6 +73,12 @@ void main() {
       await tester.tap(find.text('Submit New FDR'));
       await tester.pumpAndSettle();
 
+      await tester.drag(find.byType(ListView).last, const Offset(0, -1200));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save Submission'));
+      await tester.pumpAndSettle();
+      expect(find.text('This field is required'), findsWidgets);
+
       await tester.enterText(
         find.byType(TextFormField).at(0),
         'Demo Trust Bank',
@@ -82,7 +88,24 @@ void main() {
         'FDR-EIT-NEW-9001',
       );
       await tester.enterText(find.byType(TextFormField).at(2), '275000');
-      await tester.tap(find.text('Save Submission'));
+      await tester.enterText(find.byType(TextFormField).at(3), '275000');
+      await tester.ensureVisible(find.byType(DatePickerField).first);
+      await tester.tap(find.byType(DatePickerField).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('26').last);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(DatePickerField).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('26').last);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).at(6), '36');
+      await tester.enterText(find.byType(TextFormField).at(7), '1');
+      await tester.enterText(find.byType(TextFormField).at(8), 'No lien');
+      await tester.drag(find.byType(ListView).last, const Offset(0, -1200));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save Submission'));
       await tester.pumpAndSettle();
 
       expect(find.text('My Submissions'), findsWidgets);

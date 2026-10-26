@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 import 'notification_center.dart';
 import 'officer_dashboard.dart';
@@ -1934,6 +1936,147 @@ class _InstitutionCorrectionPageState extends State<InstitutionCorrectionPage> {
   );
 }
 
+class DatePickerField extends StatelessWidget {
+  const DatePickerField({
+    super.key,
+    this.fieldKey,
+    required this.label,
+    required this.controller,
+    required this.firstDate,
+    required this.lastDate,
+    required this.validator,
+    required this.onChanged,
+    this.enabled = true,
+  });
+
+  final String label;
+  final Key? fieldKey;
+  final TextEditingController controller;
+  final DateTime firstDate;
+  final DateTime lastDate;
+  final bool enabled;
+  final String? Function(String?) validator;
+  final ValueChanged<DateTime?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedFirst = normalizeDate(firstDate);
+    final normalizedLast = normalizeDate(lastDate);
+    return TextFormField(
+      key: fieldKey,
+      controller: controller,
+      readOnly: true,
+      showCursor: false,
+      validator: validator,
+      onTap: () async {
+        FocusScope.of(context).unfocus();
+        if (!enabled) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Select issue date first')),
+          );
+          return;
+        }
+        final today = normalizeDate(DateTime.now());
+        final current = _parseDateText(controller.text);
+        final initial = _clampDate(
+          current ?? today,
+          normalizedFirst,
+          normalizedLast,
+        );
+        final selected = await showDatePicker(
+          context: context,
+          initialDate: initial,
+          firstDate: normalizedFirst,
+          lastDate: normalizedLast,
+          builder: (context, child) {
+            final theme = Theme.of(context);
+            return Theme(
+              data: theme.copyWith(
+                colorScheme: theme.colorScheme.copyWith(primary: _orange),
+              ),
+              child: child!,
+            );
+          },
+        );
+        if (!context.mounted) return;
+        if (selected == null) return;
+        final normalized = normalizeDate(selected);
+        controller.text = DateFormat('dd MMM yyyy').format(normalized);
+        onChanged(normalized);
+      },
+      decoration: _fieldDecoration('e.g. 26 Oct 2026').copyWith(
+        labelText: null,
+        suffixIcon: const Icon(Icons.calendar_today_outlined),
+      ),
+    );
+  }
+}
+
+class _WarningText extends StatelessWidget {
+  const _WarningText(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 5),
+    child: Text(
+      text,
+      style: TextStyle(color: Colors.amber.shade900, fontSize: 12),
+    ),
+  );
+}
+
+DateTime normalizeDate(DateTime date) =>
+    DateTime(date.year, date.month, date.day);
+
+DateTime addMonths(DateTime date, int months) {
+  final normalized = normalizeDate(date);
+  final targetMonth = normalized.year * 12 + normalized.month - 1 + months;
+  final year = targetMonth ~/ 12;
+  final month = targetMonth % 12 + 1;
+  final lastDay = DateTime(year, month + 1, 0).day;
+  return DateTime(year, month, normalized.day.clamp(1, lastDay));
+}
+
+int monthsBetween(DateTime start, DateTime end) {
+  final from = normalizeDate(start);
+  final to = normalizeDate(end);
+  var months = (to.year - from.year) * 12 + to.month - from.month;
+  if (to.isBefore(addMonths(from, months))) months--;
+  return months;
+}
+
+DateTime? _parseDateText(String value) {
+  final parts = value.trim().split(' ');
+  if (parts.length != 3) return null;
+  const monthNumbers = {
+    'Jan': 1,
+    'Feb': 2,
+    'Mar': 3,
+    'Apr': 4,
+    'May': 5,
+    'Jun': 6,
+    'Jul': 7,
+    'Aug': 8,
+    'Sep': 9,
+    'Oct': 10,
+    'Nov': 11,
+    'Dec': 12,
+  };
+  final day = int.tryParse(parts[0]);
+  final month = monthNumbers[parts[1]];
+  final year = int.tryParse(parts[2]);
+  if (day == null || month == null || year == null) return null;
+  return DateTime(year, month, day);
+}
+
+DateTime _clampDate(DateTime value, DateTime first, DateTime last) {
+  if (value.isBefore(first)) return first;
+  if (value.isAfter(last)) return last;
+  return value;
+}
+
 class InstitutionNewSubmissionPage extends StatefulWidget {
   const InstitutionNewSubmissionPage({super.key});
 
@@ -1945,30 +2088,237 @@ class InstitutionNewSubmissionPage extends StatefulWidget {
 class _InstitutionNewSubmissionPageState
     extends State<InstitutionNewSubmissionPage> {
   final _formKey = GlobalKey<FormState>();
+  final _scrollController = ScrollController();
+  final _bankKey = GlobalKey<FormFieldState<String>>();
+  final _fdrKey = GlobalKey<FormFieldState<String>>();
+  final _amountKey = GlobalKey<FormFieldState<String>>();
+  final _receiptAmountKey = GlobalKey<FormFieldState<String>>();
+  final _issueDateKey = GlobalKey<FormFieldState<String>>();
+  final _maturityDateKey = GlobalKey<FormFieldState<String>>();
+  final _declaredTenureKey = GlobalKey<FormFieldState<String>>();
+  final _enteredTenureKey = GlobalKey<FormFieldState<String>>();
+  final _lienKey = GlobalKey<FormFieldState<String>>();
   final _bankController = TextEditingController();
   final _fdrController = TextEditingController();
   final _amountController = TextEditingController();
-  final _receiptAmountController = TextEditingController(text: '500000');
+  final _receiptAmountController = TextEditingController();
   final _issueDateController = TextEditingController();
   final _maturityDateController = TextEditingController();
-  final _declaredTenureController = TextEditingController(text: '36');
-  final _enteredTenureController = TextEditingController(text: '36');
-  final _lienController = TextEditingController(text: 'No lien');
+  final _declaredTenureController = TextEditingController();
+  final _enteredTenureController = TextEditingController();
+  final _lienController = TextEditingController();
+  DateTime? _issueDate;
+  DateTime? _maturityDate;
+  bool _tenureEditedManually = false;
+  bool _isSaving = false;
+  final bool _documentsAttached = true;
 
-  @override
-  void initState() {
-    super.initState();
-    final today = DateTime.now();
-    final issueDate = _formatDate(today);
-    final maturityDate = _formatDate(
-      DateTime(today.year + 3, today.month, today.day),
-    );
-    _issueDateController.text = issueDate;
-    _maturityDateController.text = maturityDate;
+  DateTime _today() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
   }
+
+  String _isoDate(DateTime date) {
+    final normalized = normalizeDate(date);
+    return '${normalized.year.toString().padLeft(4, '0')}-'
+        '${normalized.month.toString().padLeft(2, '0')}-'
+        '${normalized.day.toString().padLeft(2, '0')}';
+  }
+
+  void _updateTenureFromDates() {
+    if (_issueDate == null || _maturityDate == null) {
+      if (!_tenureEditedManually) _enteredTenureController.clear();
+      return;
+    }
+    if (!_tenureEditedManually) {
+      _enteredTenureController.text = monthsBetween(
+        _issueDate!,
+        _maturityDate!,
+      ).toString();
+    }
+  }
+
+  void _onIssueDateChanged(DateTime? date) {
+    setState(() {
+      _issueDate = date == null ? null : normalizeDate(date);
+      if (_issueDate == null) {
+        _maturityDate = null;
+        _maturityDateController.clear();
+        _enteredTenureController.clear();
+        return;
+      }
+      if (_maturityDate != null &&
+          (_maturityDate!.isBefore(addMonths(_issueDate!, 1)) ||
+              _maturityDate!.isAfter(addMonths(_issueDate!, 120)))) {
+        _maturityDate = null;
+        _maturityDateController.clear();
+        _enteredTenureController.clear();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Maturity date reset because it's no longer valid"),
+          ),
+        );
+      } else {
+        _updateTenureFromDates();
+      }
+    });
+  }
+
+  void _onMaturityDateChanged(DateTime? date) {
+    setState(() {
+      _maturityDate = date == null ? null : normalizeDate(date);
+      _updateTenureFromDates();
+    });
+  }
+
+  Future<void> _submit() async {
+    if (_isSaving) return;
+    final isValid = _formKey.currentState!.validate();
+    if (!isValid || !_documentsAttached) {
+      _scrollToFirstInvalid();
+      return;
+    }
+    final amount = _parseAmount(_amountController.text);
+    final receiptAmount = _parseAmount(_receiptAmountController.text);
+    if (amount == null ||
+        receiptAmount == null ||
+        _issueDate == null ||
+        _maturityDate == null) {
+      _scrollToFirstInvalid();
+      return;
+    }
+    setState(() => _isSaving = true);
+    try {
+      final submission = InstitutionDemoStore.instance.addSubmission(
+        fdrNumber: _fdrController.text.trim().toUpperCase(),
+        bankName: _bankController.text.trim(),
+        amount: amount,
+        receiptAmount: receiptAmount,
+        issueDate: _isoDate(_issueDate!),
+        maturityDate: _isoDate(_maturityDate!),
+        declaredTenureMonths: int.tryParse(
+          _declaredTenureController.text.trim(),
+        )!,
+        enteredTenureMonths: int.tryParse(
+          _enteredTenureController.text.trim(),
+        )!,
+        lienInformation: _lienController.text.trim(),
+        documents: _demoDocuments,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${submission.fdrNumber} added to submissions.'),
+        ),
+      );
+      Navigator.of(context).pop(true);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to save the FDR submission.')),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  void _scrollToFirstInvalid() {
+    final fields = <GlobalKey<FormFieldState<String>>>[
+      _bankKey,
+      _fdrKey,
+      _amountKey,
+      _receiptAmountKey,
+      _issueDateKey,
+      _maturityDateKey,
+      _declaredTenureKey,
+      _enteredTenureKey,
+      _lienKey,
+    ];
+    for (final key in fields) {
+      if (key.currentState?.hasError == true) {
+        final context = key.currentContext;
+        if (context != null) {
+          Scrollable.ensureVisible(
+            context,
+            alignment: 0.2,
+            duration: const Duration(milliseconds: 250),
+          );
+        }
+        return;
+      }
+    }
+  }
+
+  String? _bankValidator(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return 'This field is required';
+    if (text.length < 2 || text.length > 60) {
+      return 'Enter 2 to 60 characters';
+    }
+    return RegExp(r'^[A-Za-z .&-]+$').hasMatch(text)
+        ? null
+        : 'Use letters, spaces, &, . or - only';
+  }
+
+  String? _fdrValidator(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return 'This field is required';
+    if (text.length < 6 || text.length > 25) return 'Enter 6 to 25 characters';
+    return RegExp(r'^[A-Z0-9/-]+$').hasMatch(text)
+        ? null
+        : 'Use letters, numbers, - or / only';
+  }
+
+  String? _amountValidator(String? value) {
+    final amount = _parseAmount(value ?? '');
+    return amount == null || amount <= 0 || amount > 100000000
+        ? 'Enter an amount from 1 to 10 crore'
+        : null;
+  }
+
+  String? _tenureValidator(String? value) {
+    final tenure = int.tryParse(value?.trim() ?? '');
+    return tenure == null || tenure < 1 || tenure > 120
+        ? 'Enter a whole number from 1 to 120'
+        : null;
+  }
+
+  String? _enteredTenureValidator(String? value) {
+    final error = _tenureValidator(value);
+    if (error != null) return error;
+    if (_issueDate != null && _maturityDate != null) {
+      final expected = monthsBetween(_issueDate!, _maturityDate!);
+      if (int.tryParse(value!.trim()) != expected) {
+        return "Tenure doesn't match the selected dates ($expected months)";
+      }
+    }
+    return null;
+  }
+
+  int? _parseAmount(String value) =>
+      int.tryParse(value.replaceAll(',', '').trim());
+
+  List<DemoDocument> get _demoDocuments => const [
+    DemoDocument(
+      name: 'FDR receipt',
+      fileName: 'fdr_receipt.pdf',
+      status: 'Attached — Demo',
+    ),
+    DemoDocument(
+      name: 'Institution request letter',
+      fileName: 'request_letter.pdf',
+      status: 'Attached — Demo',
+    ),
+    DemoDocument(
+      name: 'Bank confirmation letter',
+      fileName: 'bank_confirmation.pdf',
+      status: 'Attached — Demo',
+    ),
+  ];
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _bankController.dispose();
     _fdrController.dispose();
     _amountController.dispose();
@@ -1981,54 +2331,17 @@ class _InstitutionNewSubmissionPageState
     super.dispose();
   }
 
-  void _submit() {
-    if (!_formKey.currentState!.validate()) return;
-    final submission = InstitutionDemoStore.instance.addSubmission(
-      fdrNumber: _fdrController.text.trim(),
-      bankName: _bankController.text.trim(),
-      amount: int.parse(_amountController.text.trim()),
-      receiptAmount: int.parse(_receiptAmountController.text.trim()),
-      issueDate: _issueDateController.text.trim(),
-      maturityDate: _maturityDateController.text.trim(),
-      declaredTenureMonths: int.parse(_declaredTenureController.text.trim()),
-      enteredTenureMonths: int.parse(_enteredTenureController.text.trim()),
-      lienInformation: _lienController.text.trim(),
-      documents: const [
-        DemoDocument(
-          name: 'FDR receipt',
-          fileName: 'fdr_receipt.pdf',
-          status: 'Attached — Demo',
-        ),
-        DemoDocument(
-          name: 'Institution request letter',
-          fileName: 'request_letter.pdf',
-          status: 'Attached — Demo',
-        ),
-        DemoDocument(
-          name: 'Bank confirmation letter',
-          fileName: 'bank_confirmation.pdf',
-          status: 'Attached — Demo',
-        ),
-      ],
-    );
-    Navigator.of(context).pop(true);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${submission.fdrNumber} added to submissions.')),
-    );
-  }
-
-  String? _positiveAmount(String? value) {
-    final amount = int.tryParse(value?.trim() ?? '');
-    return amount == null || amount <= 0
-        ? 'Enter an amount greater than zero'
-        : null;
-  }
-
   @override
   Widget build(BuildContext context) => _InstitutionSubpage(
     title: 'Submit New FDR',
     child: ListView(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
+      controller: _scrollController,
+      padding: EdgeInsets.fromLTRB(
+        18,
+        14,
+        18,
+        24 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
       children: [
         const _DemoNotice(),
         const SizedBox(height: 14),
@@ -2048,114 +2361,176 @@ class _InstitutionNewSubmissionPageState
         const SizedBox(height: 18),
         Form(
           key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _InputLabel(label: 'Bank name'),
               TextFormField(
+                key: _bankKey,
                 controller: _bankController,
                 decoration: _fieldDecoration('Enter bank name'),
                 textCapitalization: TextCapitalization.words,
-                validator: _required,
+                validator: _bankValidator,
               ),
               const SizedBox(height: 14),
               _InputLabel(label: 'FDR number'),
               TextFormField(
+                key: _fdrKey,
                 controller: _fdrController,
                 decoration: _fieldDecoration('Enter FDR reference'),
                 textCapitalization: TextCapitalization.characters,
-                validator: _required,
+                onChanged: (value) {
+                  final upper = value.toUpperCase();
+                  if (upper != value) {
+                    _fdrController.value = _fdrController.value.copyWith(
+                      text: upper,
+                      selection: TextSelection.collapsed(offset: upper.length),
+                    );
+                  }
+                },
+                validator: _fdrValidator,
               ),
               const SizedBox(height: 14),
               _InputLabel(label: 'Deposit amount (INR)'),
               TextFormField(
+                key: _amountKey,
                 controller: _amountController,
                 decoration: _fieldDecoration('e.g. 500000'),
                 keyboardType: TextInputType.number,
-                validator: (value) {
-                  final amount = int.tryParse(value?.trim() ?? '');
-                  if (amount == null || amount <= 0) {
-                    return 'Enter an amount greater than zero';
-                  }
-                  return null;
-                },
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                onChanged: (_) => setState(() {}),
+                validator: _amountValidator,
               ),
-              ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                title: const Text('Additional verification details'),
-                subtitle: const Text('Dates, tenure, lien, and documents'),
-                children: [
-                  _InputLabel(label: 'Receipt amount (INR)'),
-                  TextFormField(
-                    controller: _receiptAmountController,
-                    decoration: _fieldDecoration('Amount shown on the receipt'),
-                    keyboardType: TextInputType.number,
-                    validator: _positiveAmount,
-                  ),
-                  const SizedBox(height: 14),
-                  _InputLabel(label: 'Issue date'),
-                  TextFormField(
-                    controller: _issueDateController,
-                    decoration: _fieldDecoration('e.g. 26 Oct 2026'),
-                    validator: _required,
-                  ),
-                  const SizedBox(height: 14),
-                  _InputLabel(label: 'Maturity date'),
-                  TextFormField(
-                    controller: _maturityDateController,
-                    decoration: _fieldDecoration('e.g. 26 Oct 2029'),
-                    validator: _required,
-                  ),
-                  const SizedBox(height: 14),
-                  _InputLabel(label: 'Declared tenure (months)'),
-                  TextFormField(
-                    controller: _declaredTenureController,
-                    decoration: _fieldDecoration('e.g. 36'),
-                    keyboardType: TextInputType.number,
-                    validator: _positiveAmount,
-                  ),
-                  const SizedBox(height: 14),
-                  _InputLabel(label: 'Entered tenure (months)'),
-                  TextFormField(
-                    controller: _enteredTenureController,
-                    decoration: _fieldDecoration('e.g. 36'),
-                    keyboardType: TextInputType.number,
-                    validator: _positiveAmount,
-                  ),
-                  const SizedBox(height: 14),
-                  _InputLabel(label: 'Lien information'),
-                  TextFormField(
-                    controller: _lienController,
-                    decoration: _fieldDecoration(
-                      'Enter lien or security details',
-                    ),
-                    validator: _required,
-                  ),
-                  const SizedBox(height: 18),
-                  const _InputLabel(label: 'Supporting documents'),
-                  const SizedBox(height: 6),
-                  _DummyDocumentAttachment(
-                    fileName: 'fdr_receipt.pdf',
-                    description: 'Fixed Deposit Receipt',
-                  ),
-                  const SizedBox(height: 8),
-                  _DummyDocumentAttachment(
-                    fileName: 'request_letter.pdf',
-                    description: 'Institution request letter',
-                  ),
-                  const SizedBox(height: 8),
-                  _DummyDocumentAttachment(
-                    fileName: 'bank_confirmation.pdf',
-                    description: 'Bank confirmation letter',
-                  ),
-                ],
+              const SizedBox(height: 14),
+              _InputLabel(label: 'Receipt amount (INR)'),
+              TextFormField(
+                key: _receiptAmountKey,
+                controller: _receiptAmountController,
+                decoration: _fieldDecoration('Amount shown on the receipt'),
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                onChanged: (_) => setState(() {}),
+                validator: _amountValidator,
+              ),
+              if (_amountController.text.isNotEmpty &&
+                  _receiptAmountController.text.isNotEmpty &&
+                  _parseAmount(_amountController.text) !=
+                      _parseAmount(_receiptAmountController.text))
+                const _WarningText(
+                  'Receipt amount differs from deposit amount',
+                ),
+              const SizedBox(height: 14),
+              _InputLabel(label: 'Issue date'),
+              DatePickerField(
+                fieldKey: _issueDateKey,
+                label: 'Issue date',
+                controller: _issueDateController,
+                firstDate: addMonths(_today(), -120),
+                lastDate: _today(),
+                validator: (value) =>
+                    _issueDate == null ? 'Select the issue date' : null,
+                onChanged: _onIssueDateChanged,
+              ),
+              const SizedBox(height: 14),
+              _InputLabel(label: 'Maturity date'),
+              DatePickerField(
+                fieldKey: _maturityDateKey,
+                label: 'Maturity date',
+                controller: _maturityDateController,
+                firstDate: _issueDate == null
+                    ? _today()
+                    : addMonths(_issueDate!, 1),
+                lastDate: _issueDate == null
+                    ? _today()
+                    : addMonths(_issueDate!, 120),
+                enabled: _issueDate != null,
+                validator: (value) =>
+                    _maturityDate == null ? 'Select the maturity date' : null,
+                onChanged: _onMaturityDateChanged,
+              ),
+              const SizedBox(height: 14),
+              _InputLabel(label: 'Declared tenure (months)'),
+              TextFormField(
+                key: _declaredTenureKey,
+                controller: _declaredTenureController,
+                decoration: _fieldDecoration('e.g. 36'),
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                onChanged: (_) => setState(() {}),
+                validator: _tenureValidator,
+              ),
+              const SizedBox(height: 14),
+              _InputLabel(label: 'Entered tenure (months)'),
+              TextFormField(
+                key: _enteredTenureKey,
+                controller: _enteredTenureController,
+                decoration: _fieldDecoration('e.g. 36'),
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                onChanged: (_) {
+                  _tenureEditedManually = true;
+                  setState(() {});
+                },
+                validator: _enteredTenureValidator,
+              ),
+              if (int.tryParse(_declaredTenureController.text.trim()) != null &&
+                  int.tryParse(_enteredTenureController.text.trim()) != null &&
+                  _declaredTenureController.text.trim() !=
+                      _enteredTenureController.text.trim())
+                const _WarningText(
+                  'Declared and entered tenure differ, will be flagged for verification',
+                ),
+              const SizedBox(height: 14),
+              _InputLabel(label: 'Lien information'),
+              TextFormField(
+                key: _lienKey,
+                controller: _lienController,
+                decoration: _fieldDecoration(
+                  'Enter lien or security details',
+                ).copyWith(counterText: '${_lienController.text.length}/200'),
+                maxLength: 200,
+                maxLines: 3,
+                minLines: 1,
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 18),
+              const _InputLabel(label: 'Supporting documents'),
+              const SizedBox(height: 6),
+              _DummyDocumentAttachment(
+                fileName: 'fdr_receipt.pdf',
+                description: 'Fixed Deposit Receipt',
+              ),
+              const SizedBox(height: 8),
+              _DummyDocumentAttachment(
+                fileName: 'request_letter.pdf',
+                description: 'Institution request letter',
+              ),
+              const SizedBox(height: 8),
+              _DummyDocumentAttachment(
+                fileName: 'bank_confirmation.pdf',
+                description: 'Bank confirmation letter',
               ),
               const SizedBox(height: 20),
+              if (!_documentsAttached)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Attach all required documents before saving.',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                ),
               SizedBox(
                 height: 50,
                 child: FilledButton.icon(
-                  onPressed: _submit,
-                  icon: const Icon(Icons.send_rounded),
+                  onPressed: _isSaving ? null : _submit,
+                  icon: _isSaving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send_rounded),
                   label: const Text('Save Submission'),
                 ),
               ),
