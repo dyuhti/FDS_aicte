@@ -103,14 +103,17 @@ class NotificationCenter extends ChangeNotifier {
     NotificationCategory? category,
     bool unreadOnly = false,
   }) {
-    final result = _notifications.where((notification) {
-      final recipientMatches = notification.recipientRole == role &&
-          (role == NotificationRecipientRole.officer ||
-              notification.recipientId == recipientId);
-      return recipientMatches &&
-          (!unreadOnly || !notification.read) &&
-          (category == null || notification.category == category);
-    }).toList()..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+    final result =
+        _notifications.where((notification) {
+            final recipientMatches =
+                notification.recipientRole == role &&
+                (role == NotificationRecipientRole.officer ||
+                    notification.recipientId == recipientId);
+            return recipientMatches &&
+                (!unreadOnly || !notification.read) &&
+                (category == null || notification.category == category);
+          }).toList()
+          ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
     return List.unmodifiable(result);
   }
 
@@ -134,8 +137,10 @@ class NotificationCenter extends ChangeNotifier {
     required String eventKey,
   }) {
     if (!preference('inApp') ||
-        (category == NotificationCategory.reminder && !preference('reminders')) ||
-        (category != NotificationCategory.reminder && !preference('workflow'))) {
+        (category == NotificationCategory.reminder &&
+            !preference('reminders')) ||
+        (category != NotificationCategory.reminder &&
+            !preference('workflow'))) {
       return;
     }
     final duplicate = _notifications.any((item) => item.id == eventKey);
@@ -182,7 +187,8 @@ class NotificationCenter extends ChangeNotifier {
     add(
       recipientRole: NotificationRecipientRole.officer,
       title: 'New FDR Submission',
-      message: 'Example Institute of Technology submitted an FDR for verification.',
+      message:
+          'Example Institute of Technology submitted an FDR for verification.',
       category: NotificationCategory.submission,
       relatedId: 'FDR-2026-00124',
       eventKey: 'seed-officer-fdr-00124',
@@ -247,7 +253,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
         widget.role,
         recipientId: widget.recipientId,
       );
-      final isInstitution = widget.role == NotificationRecipientRole.institution;
+      final isInstitution =
+          widget.role == NotificationRecipientRole.institution;
       return ScreenScaffold(
         appBar: AppBar(
           title: const Text('Notifications'),
@@ -273,16 +280,48 @@ class _NotificationsPageState extends State<NotificationsPage> {
           },
           destinations: isInstitution
               ? const [
-                  NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
-                  NavigationDestination(icon: Icon(Icons.fact_check_outlined), selectedIcon: Icon(Icons.fact_check_rounded), label: 'My Submissions'),
-                  NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), selectedIcon: Icon(Icons.account_balance_wallet_rounded), label: 'Release / Refund'),
-                  NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'Profile'),
+                  NavigationDestination(
+                    icon: Icon(Icons.home_outlined),
+                    selectedIcon: Icon(Icons.home_rounded),
+                    label: 'Home',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.fact_check_outlined),
+                    selectedIcon: Icon(Icons.fact_check_rounded),
+                    label: 'My Submissions',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.account_balance_wallet_outlined),
+                    selectedIcon: Icon(Icons.account_balance_wallet_rounded),
+                    label: 'Release / Refund',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.person_outline_rounded),
+                    selectedIcon: Icon(Icons.person_rounded),
+                    label: 'Profile',
+                  ),
                 ]
               : const [
-                  NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
-                  NavigationDestination(icon: Icon(Icons.fact_check_outlined), selectedIcon: Icon(Icons.fact_check_rounded), label: 'Submissions'),
-                  NavigationDestination(icon: Icon(Icons.domain_outlined), selectedIcon: Icon(Icons.domain_rounded), label: 'Institutions'),
-                  NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'Profile'),
+                  NavigationDestination(
+                    icon: Icon(Icons.home_outlined),
+                    selectedIcon: Icon(Icons.home_rounded),
+                    label: 'Home',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.fact_check_outlined),
+                    selectedIcon: Icon(Icons.fact_check_rounded),
+                    label: 'Submissions',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.domain_outlined),
+                    selectedIcon: Icon(Icons.domain_rounded),
+                    label: 'Institutions',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.person_outline_rounded),
+                    selectedIcon: Icon(Icons.person_rounded),
+                    label: 'Profile',
+                  ),
                 ],
         ),
         body: Column(
@@ -290,7 +329,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-              child: Text('$unread unread', style: const TextStyle(fontWeight: FontWeight.w700)),
+              child: Text(
+                '$unread unread',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
             ),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -302,6 +344,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   _filterChip('Approvals', NotificationCategory.approval),
                   _filterChip('Submissions', NotificationCategory.submission),
                   _filterChip('Requests', NotificationCategory.request),
+                  _filterChip(
+                    NotificationCategory.clarification.label,
+                    NotificationCategory.clarification,
+                  ),
                 ],
               ),
             ),
@@ -313,11 +359,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.notifications_none_rounded, size: 48, color: Color(0xFFF97316)),
+                            Icon(
+                              Icons.notifications_none_rounded,
+                              size: 48,
+                              color: Color(0xFFF97316),
+                            ),
                             SizedBox(height: 12),
-                            Text('You are all caught up', style: TextStyle(fontWeight: FontWeight.w700)),
+                            Text(
+                              'You are all caught up',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
                             SizedBox(height: 5),
-                            Text('New portal updates will appear here.', textAlign: TextAlign.center),
+                            Text(
+                              'New portal updates will appear here.',
+                              textAlign: TextAlign.center,
+                            ),
                           ],
                         ),
                       ),
@@ -331,7 +387,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
                         return _NotificationCard(
                           notification: notification,
                           onTap: () {
-                            NotificationCenter.instance.markRead(notification.id);
+                            NotificationCenter.instance.markRead(
+                              notification.id,
+                            );
                             widget.onOpenRelated?.call(notification);
                           },
                         );
@@ -344,18 +402,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
     },
   );
 
-  Widget _filterChip(String label, NotificationCategory? category, {bool unread = false}) =>
-      Padding(
-        padding: const EdgeInsets.only(right: 8),
-        child: FilterChip(
-          label: Text(label),
-          selected: unread ? _unreadOnly : _category == category && !_unreadOnly,
-          onSelected: (_) => setState(() {
-            _unreadOnly = unread;
-            _category = unread ? null : category;
-          }),
-        ),
-      );
+  Widget _filterChip(
+    String label,
+    NotificationCategory? category, {
+    bool unread = false,
+  }) => Padding(
+    padding: const EdgeInsets.only(right: 8),
+    child: FilterChip(
+      label: Text(label),
+      selected: unread ? _unreadOnly : _category == category && !_unreadOnly,
+      onSelected: (_) => setState(() {
+        _unreadOnly = unread;
+        _category = unread ? null : category;
+      }),
+    ),
+  );
 }
 
 class _NotificationCard extends StatelessWidget {
@@ -380,24 +441,39 @@ class _NotificationCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(notification.category.icon, color: notification.category.color),
+            Icon(
+              notification.category.icon,
+              color: notification.category.color,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(notification.title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  Text(
+                    notification.title,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
                   const SizedBox(height: 4),
                   Text(notification.message),
                   const SizedBox(height: 7),
-                  Text(_relativeTime(notification.createdAt), style: const TextStyle(color: Color(0xFF6B7280), fontSize: 12)),
+                  Text(
+                    _relativeTime(notification.createdAt),
+                    style: const TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontSize: 12,
+                    ),
+                  ),
                 ],
               ),
             ),
             if (!notification.read)
               const Padding(
                 padding: EdgeInsets.only(left: 8, top: 3),
-                child: CircleAvatar(radius: 4, backgroundColor: Color(0xFFF97316)),
+                child: CircleAvatar(
+                  radius: 4,
+                  backgroundColor: Color(0xFFF97316),
+                ),
               ),
           ],
         ),

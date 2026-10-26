@@ -486,11 +486,21 @@ class _OfficerDashboardScreenState extends State<OfficerDashboardScreen> {
                 onSelectTab: (index) => _officerSelectedTab.value = index,
                 onOpenRelated: (notification) {
                   Navigator.of(context).pop();
-                  final submission = notification.relatedId == null
+                  final store = DemoFdrPortalStore.instance;
+                  final relatedId = notification.relatedId;
+                  final submission = relatedId == null
                       ? null
-                      : DemoFdrPortalStore.instance.submissionById(
-                          notification.relatedId!,
-                        );
+                      : store.submissionById(relatedId) ??
+                            (() {
+                              final caseRecord = store.releaseCases
+                                  .where((item) => item.caseId == relatedId)
+                                  .firstOrNull;
+                              return caseRecord == null
+                                  ? null
+                                  : store.submissionById(
+                                      caseRecord.submissionId,
+                                    );
+                            })();
                   if (submission != null) _openReview(submission);
                 },
               ),
