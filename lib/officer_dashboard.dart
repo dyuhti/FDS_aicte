@@ -832,62 +832,62 @@ class _DashboardHome extends StatelessWidget {
       context,
     ).formatFullDate(DateTime.now());
     return LayoutBuilder(
-          builder: (context, constraints) {
-            final horizontalPadding = constraints.maxWidth > 700 ? 28.0 : 18.0;
-            return SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                horizontalPadding,
-                12,
-                horizontalPadding,
-                24,
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 760),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+      builder: (context, constraints) {
+        final horizontalPadding = constraints.maxWidth > 700 ? 28.0 : 18.0;
+        return SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            horizontalPadding,
+            12,
+            horizontalPadding,
+            24,
+          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Welcome back, Officer',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: _ink,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Review submissions and manage institutional security deposits.',
+                    style: TextStyle(color: _muted, fontSize: 13, height: 1.4),
+                  ),
+                  const SizedBox(height: 7),
+                  Row(
                     children: [
-                      Text(
-                        'Welcome back, Officer',
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          color: _ink,
-                          fontWeight: FontWeight.w700,
+                      const Icon(
+                        Icons.calendar_today_outlined,
+                        size: 13,
+                        color: _muted,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          dateLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: _muted, fontSize: 12),
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Review submissions and manage institutional security deposits.',
-                        style: TextStyle(color: _muted, fontSize: 13, height: 1.4),
-                      ),
-                      const SizedBox(height: 7),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.calendar_today_outlined,
-                            size: 13,
-                            color: _muted,
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              dateLabel,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: _muted, fontSize: 12),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      const SizedBox(height: 18),
-                      _SectionHeading(
-                        title: 'Overview',
-                        trailing: 'Current status',
-                      ),
-                      const SizedBox(height: 10),
-                      LayoutBuilder(
-                        builder: (context, gridConstraints) {
-                          final metrics = <_MetricCard>[
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  const SizedBox(height: 18),
+                  _SectionHeading(
+                    title: 'Overview',
+                    trailing: 'Current status',
+                  ),
+                  const SizedBox(height: 10),
+                  LayoutBuilder(
+                    builder: (context, gridConstraints) {
+                      final metrics = <_MetricCard>[
                         _MetricCard(
                           label: 'Pending Review',
                           value: repository.countByStatus(
@@ -951,14 +951,18 @@ class _DashboardHome extends StatelessWidget {
                       final aspectRatio = gridConstraints.maxWidth < 380
                           ? 1.45
                           : 1.72;
-                        final baseCardHeight =
+                      final baseCardHeight =
                           ((gridConstraints.maxWidth - 10) / 2) / aspectRatio;
-                        final scale = MediaQuery.textScalerOf(context).scale(1);
-                        final cardHeight = baseCardHeight +
-                          (scale > 1 ? (scale - 1) * 24 : 0);
+                      final scale = MediaQuery.textScalerOf(context).scale(1);
+                      final cardHeight =
+                          baseCardHeight + (scale > 1 ? (scale - 1) * 24 : 0);
                       return Column(
                         children: [
-                          for (var index = 0; index < metrics.length; index += 2)
+                          for (
+                            var index = 0;
+                            index < metrics.length;
+                            index += 2
+                          )
                             Padding(
                               padding: EdgeInsets.only(
                                 bottom: index + 2 < metrics.length ? 10 : 0,
@@ -974,7 +978,9 @@ class _DashboardHome extends StatelessWidget {
                                         note: metrics[index].note,
                                         icon: metrics[index].icon,
                                         color: metrics[index].color,
-                                        wide: index + 1 == metrics.length && metrics.length.isOdd,
+                                        wide:
+                                            index + 1 == metrics.length &&
+                                            metrics.length.isOdd,
                                       ),
                                     ),
                                     if (index + 1 < metrics.length) ...[
@@ -993,8 +999,11 @@ class _DashboardHome extends StatelessWidget {
                   SummaryTile(
                     icon: Icons.list_alt_rounded,
                     title: 'Action Queue',
-                    count: buildOfficerActionQueue(DemoFdrPortalStore.instance).length,
-                    subtitle: '${buildOfficerActionQueue(DemoFdrPortalStore.instance).where((item) => item.priority == 'High').length} high priority · ${buildOfficerActionQueue(DemoFdrPortalStore.instance).where((item) => item.priority != 'High').length} routine',
+                    count: buildOfficerActionQueue(
+                      DemoFdrPortalStore.instance,
+                    ).length,
+                    subtitle:
+                        '${buildOfficerActionQueue(DemoFdrPortalStore.instance).where((item) => item.priority == 'High').length} high priority · ${buildOfficerActionQueue(DemoFdrPortalStore.instance).where((item) => item.priority != 'High').length} routine',
                     accentColor: const Color(0xFFEA580C),
                     onTap: () => Navigator.of(context).push<void>(
                       MaterialPageRoute<void>(
@@ -1051,7 +1060,8 @@ class _DashboardHome extends StatelessWidget {
                   const SizedBox(height: 21),
                   _SectionHeading(
                     title: 'Pending Verification',
-                    actionLabel: 'View all (${repository.pendingSubmissions.length})',
+                    actionLabel:
+                        'View all (${repository.pendingSubmissions.length})',
                     onAction: () => onOpenPage(
                       'Pending Verification',
                       subtitle: 'All shared submissions awaiting review.',
@@ -1068,7 +1078,9 @@ class _DashboardHome extends StatelessWidget {
                       message: 'No pending submissions to review.',
                     )
                   else
-                    for (final submission in repository.pendingSubmissions.take(2))
+                    for (final submission in repository.pendingSubmissions.take(
+                      2,
+                    ))
                       Padding(
                         padding: const EdgeInsets.only(bottom: 9),
                         child: _SubmissionCard(
@@ -1135,9 +1147,14 @@ class _CaseHistoryPage extends StatelessWidget {
                   Card(
                     margin: const EdgeInsets.only(bottom: 10),
                     child: ListTile(
-                      leading: const Icon(Icons.history_rounded, color: _orange),
+                      leading: const Icon(
+                        Icons.history_rounded,
+                        color: _orange,
+                      ),
                       title: Text(event.title),
-                      subtitle: Text('${event.actor} · ${event.time}\n${event.detail}'),
+                      subtitle: Text(
+                        '${event.actor} · ${event.time}\n${event.detail}',
+                      ),
                     ),
                   ),
               ],
@@ -1159,7 +1176,8 @@ class _DeadlineCommandCenterPage extends StatelessWidget {
         builder: (context, _) {
           final lastScan = DemoFdrPortalStore.instance.lastReminderScanAt;
           final created = DemoFdrPortalStore.instance.lastReminderCreated;
-          final alreadySent = DemoFdrPortalStore.instance.lastReminderAlreadySent;
+          final alreadySent =
+              DemoFdrPortalStore.instance.lastReminderAlreadySent;
           return ListView(
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
             children: [
@@ -1171,9 +1189,12 @@ class _DeadlineCommandCenterPage extends StatelessWidget {
                       variant: AppButtonVariant.primary,
                       icon: Icons.notifications_active_rounded,
                       onPressed: () {
-                        final created = DemoFdrPortalStore.instance.runReminderScan();
+                        final created = DemoFdrPortalStore.instance
+                            .runReminderScan();
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('$created reminder(s) created')),
+                          SnackBar(
+                            content: Text('$created reminder(s) created'),
+                          ),
                         );
                       },
                     ),
@@ -1190,17 +1211,26 @@ class _DeadlineCommandCenterPage extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 '$created new reminders sent, $alreadySent already sent',
-                style: const TextStyle(color: _ink, fontSize: 13, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  color: _ink,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 12),
               for (final item in items)
                 Card(
                   margin: const EdgeInsets.only(bottom: 10),
                   child: ListTile(
-                    title: Text('${item.submission.reference} · ${item.status.label}'),
-                    subtitle: Text('${item.submission.institution}\n${item.nextAction}'),
+                    title: Text(
+                      '${item.submission.reference} · ${item.status.label}',
+                    ),
+                    subtitle: Text(
+                      '${item.submission.institution}\n${item.nextAction}',
+                    ),
                     isThreeLine: true,
-                    trailing: item.status == MaturityStatus.active || item.isRenewed
+                    trailing:
+                        item.status == MaturityStatus.active || item.isRenewed
                         ? null
                         : TextButton(
                             onPressed: () {
@@ -1235,7 +1265,9 @@ class _FullActionQueuePageState extends State<_FullActionQueuePage> {
     body: AnimatedBuilder(
       animation: DemoFdrPortalStore.instance,
       builder: (context, _) {
-        final all = StoreReportsRepository(DemoFdrPortalStore.instance).actionQueue;
+        final all = StoreReportsRepository(
+          DemoFdrPortalStore.instance,
+        ).actionQueue;
         final visible = all.where((item) {
           if (_filter == QueueFilter.all) return true;
           return item.category.split(', ').contains(_filter.label);
@@ -1255,7 +1287,9 @@ class _FullActionQueuePageState extends State<_FullActionQueuePage> {
                     Padding(
                       padding: const EdgeInsets.only(right: 7),
                       child: ChoiceChip(
-                        label: Text('${filter.label} ${all.where((item) => filter == QueueFilter.all || item.category.split(', ').contains(filter.label)).length}'),
+                        label: Text(
+                          '${filter.label} ${all.where((item) => filter == QueueFilter.all || item.category.split(', ').contains(filter.label)).length}',
+                        ),
                         selected: _filter == filter,
                         onSelected: (_) => setState(() => _filter = filter),
                       ),
@@ -1276,9 +1310,15 @@ class _FullActionQueuePageState extends State<_FullActionQueuePage> {
                         for (final entry in groups.entries) ...[
                           Padding(
                             padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: Text(entry.key, style: const TextStyle(fontWeight: FontWeight.w800)),
+                            child: Text(
+                              entry.key,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                           ),
-                          for (final item in entry.value) _queueTile(context, item),
+                          for (final item in entry.value)
+                            _queueTile(context, item),
                         ],
                       ]
                     : [for (final item in visible) _queueTile(context, item)],
@@ -1292,7 +1332,11 @@ class _FullActionQueuePageState extends State<_FullActionQueuePage> {
 
   Widget _queueTile(BuildContext context, ActionQueueItem item) => Card(
     child: ListTile(
-      leading: Icon(item.priority == 'High' ? Icons.priority_high_rounded : Icons.schedule_rounded),
+      leading: Icon(
+        item.priority == 'High'
+            ? Icons.priority_high_rounded
+            : Icons.schedule_rounded,
+      ),
       title: Text(item.reference),
       subtitle: Text('${item.institution}\n${item.reason}'),
       isThreeLine: true,
@@ -1311,7 +1355,8 @@ class _FullActionQueuePageState extends State<_FullActionQueuePage> {
     store.selectSubmission(submission.submissionId);
     if (target == QueueTarget.releaseClearances && submission.caseId != null) {
       store.selectReleaseCase(item.relatedCaseId ?? submission.caseId!);
-    } else if (target == QueueTarget.releaseClearances && item.relatedCaseId != null) {
+    } else if (target == QueueTarget.releaseClearances &&
+        item.relatedCaseId != null) {
       store.selectReleaseCase(item.relatedCaseId!);
     }
     if (target == QueueTarget.verificationResults) {
@@ -1388,15 +1433,19 @@ class _DeadlineList extends StatelessWidget {
     FdrDeadlineInfo deadline,
   ) async {
     final store = DemoFdrPortalStore.instance;
-    final record = store.fdrRecordForSubmission(deadline.submission.submissionId);
+    final record = store.fdrRecordForSubmission(
+      deadline.submission.submissionId,
+    );
     if (record == null) return;
     final number = TextEditingController();
     final bank = TextEditingController(text: record.bank);
-    final amount = TextEditingController(text: '${record.declaredDepositAmount}');
-    final issue = TextEditingController(
-      text: record.maturityDate,
+    final amount = TextEditingController(
+      text: '${record.declaredDepositAmount}',
     );
-    final tenure = TextEditingController(text: '${record.declaredTenureMonths}');
+    final issue = TextEditingController(text: record.maturityDate);
+    final tenure = TextEditingController(
+      text: '${record.declaredTenureMonths}',
+    );
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -1405,16 +1454,36 @@ class _DeadlineList extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: number, decoration: const InputDecoration(labelText: 'New FDR number')),
-              TextField(controller: bank, decoration: const InputDecoration(labelText: 'Bank')),
-              TextField(controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Amount')),
-              TextField(controller: issue, decoration: const InputDecoration(labelText: 'Issue date')),
-              TextField(controller: tenure, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Tenure months')),
+              TextField(
+                controller: number,
+                decoration: const InputDecoration(labelText: 'New FDR number'),
+              ),
+              TextField(
+                controller: bank,
+                decoration: const InputDecoration(labelText: 'Bank'),
+              ),
+              TextField(
+                controller: amount,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Amount'),
+              ),
+              TextField(
+                controller: issue,
+                decoration: const InputDecoration(labelText: 'Issue date'),
+              ),
+              TextField(
+                controller: tenure,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Tenure months'),
+              ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () {
               try {
@@ -1428,9 +1497,9 @@ class _DeadlineList extends StatelessWidget {
                 );
                 Navigator.pop(dialogContext);
               } on Object catch (error) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(error.toString())),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text(error.toString())));
               }
             },
             child: const Text('Create renewal'),
@@ -1648,14 +1717,20 @@ class _InstitutionCard extends StatelessWidget {
               ),
               ExpansionTile(
                 tilePadding: EdgeInsets.zero,
-                title: const Text('Why this risk?', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                title: const Text(
+                  'Why this risk?',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                ),
                 children: [
                   for (final reason in risk.reasons)
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Padding(
                         padding: const EdgeInsets.only(bottom: 4),
-                        child: Text(reason, style: const TextStyle(color: _muted, fontSize: 11)),
+                        child: Text(
+                          reason,
+                          style: const TextStyle(color: _muted, fontSize: 11),
+                        ),
                       ),
                     ),
                 ],
@@ -1773,7 +1848,10 @@ class _InstitutionDetailPage extends StatelessWidget {
                         alignment: Alignment.centerLeft,
                         child: Padding(
                           padding: const EdgeInsets.only(bottom: 5),
-                          child: Text(reason, style: const TextStyle(color: _muted, fontSize: 11)),
+                          child: Text(
+                            reason,
+                            style: const TextStyle(color: _muted, fontSize: 11),
+                          ),
                         ),
                       ),
                   ],
@@ -1804,10 +1882,10 @@ class _ReportsView extends StatelessWidget {
     builder: (context, _) {
       final reports = StoreReportsRepository(DemoFdrPortalStore.instance);
       final records = reports.submissions;
-        final deposits = reports.depositByStatus;
-        final total = reports.totalSubmissions;
-        final resolved = reports.resolvedCount;
-        final percentages = reports.statusPercentages;
+      final deposits = reports.depositByStatus;
+      final total = reports.totalSubmissions;
+      final resolved = reports.resolvedCount;
+      final percentages = reports.statusPercentages;
       return SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
         child: Column(
@@ -1868,7 +1946,8 @@ class _ReportsView extends StatelessWidget {
                   for (final entry in reports.institutionRisk.entries)
                     _ReportLine(
                       label: entry.key,
-                      value: '${entry.value.category} · ${entry.value.score} points',
+                      value:
+                          '${entry.value.category} · ${entry.value.score} points',
                     ),
                 ],
               ),
@@ -1882,15 +1961,34 @@ class _ReportsView extends StatelessWidget {
               children: [
                 for (final report in <({String name, String csv})>[
                   (name: 'submissions.csv', csv: buildSubmissionsCsv(records)),
-                  (name: 'institutions.csv', csv: buildInstitutionsCsv(reports.institutionRisk)),
-                  (name: 'deadlines.csv', csv: buildDeadlinesCsv(reports.deadlines)),
-                  (name: 'audit-trail.csv', csv: buildAuditCsv(DemoFdrPortalStore.instance.auditEntries)),
-                  (name: 'discrepancies.csv', csv: buildDiscrepanciesCsv(records)),
+                  (
+                    name: 'institutions.csv',
+                    csv: buildInstitutionsCsv(reports.institutionRisk),
+                  ),
+                  (
+                    name: 'deadlines.csv',
+                    csv: buildDeadlinesCsv(reports.deadlines),
+                  ),
+                  (
+                    name: 'audit-trail.csv',
+                    csv: buildAuditCsv(
+                      DemoFdrPortalStore.instance.auditEntries,
+                    ),
+                  ),
+                  (
+                    name: 'discrepancies.csv',
+                    csv: buildDiscrepanciesCsv(records),
+                  ),
                 ])
                   OutlinedButton.icon(
-                    onPressed: () => exportCsvReport(context, report.name, report.csv),
+                    onPressed: () =>
+                        exportCsvReport(context, report.name, report.csv),
                     icon: const Icon(Icons.download_outlined),
-                    label: Text(report.name == 'submissions.csv' ? 'Export Report' : report.name),
+                    label: Text(
+                      report.name == 'submissions.csv'
+                          ? 'Export Report'
+                          : report.name,
+                    ),
                   ),
               ],
             ),
@@ -2213,53 +2311,53 @@ class _MetricCard extends StatelessWidget {
               ],
             )
           : Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: 18),
-              const Spacer(),
-              Text(
-                '$value',
-                style: TextStyle(
-                  color: color,
-                  fontSize: 23,
-                  fontWeight: FontWeight.w700,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon, color: color, size: 18),
+                    const Spacer(),
+                    Text(
+                      '$value',
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 23,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
-          Flexible(
-            child: FittedBox(
-              alignment: Alignment.bottomLeft,
-              fit: BoxFit.scaleDown,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: _ink,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                Flexible(
+                  child: FittedBox(
+                    alignment: Alignment.bottomLeft,
+                    fit: BoxFit.scaleDown,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: _ink,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          note,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: _muted, fontSize: 10),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    note,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: _muted, fontSize: 10),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
     ),
   );
 }
@@ -2703,9 +2801,7 @@ class _OfficerProfilePageState extends State<OfficerProfilePage> {
           ),
           OutlinedButton.icon(
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const DemoScriptPage(),
-              ),
+              MaterialPageRoute<void>(builder: (_) => const DemoScriptPage()),
             ),
             icon: const Icon(Icons.route_outlined),
             label: const Text('Workflow Guide'),
@@ -2715,7 +2811,10 @@ class _OfficerProfilePageState extends State<OfficerProfilePage> {
               final messenger = ScaffoldMessenger.of(context);
               DemoFdrPortalStore.instance.resetDemoData();
               DemoFdrPortalStore.instance.seedDemoCases();
-              await portalAuthService.authenticate(widget.userId, 'demo-password');
+              await portalAuthService.authenticate(
+                widget.userId,
+                'demo-password',
+              );
               if (!mounted) return;
               setState(() {});
               messenger.showSnackBar(
@@ -2790,18 +2889,14 @@ class _VerificationRulesPage extends StatelessWidget {
                 isThreeLine: true,
                 leading: Switch(
                   value: rule.enabled,
-                  onChanged: (enabled) =>
-                      DemoFdrPortalStore.instance.updateRule(
-                        rule.copyWith(enabled: enabled),
-                      ),
+                  onChanged: (enabled) => DemoFdrPortalStore.instance
+                      .updateRule(rule.copyWith(enabled: enabled)),
                 ),
                 trailing: PopupMenuButton<RuleSeverity>(
                   tooltip: 'Change severity',
                   initialValue: rule.severity,
-                  onSelected: (severity) =>
-                      DemoFdrPortalStore.instance.updateRule(
-                        rule.copyWith(severity: severity),
-                      ),
+                  onSelected: (severity) => DemoFdrPortalStore.instance
+                      .updateRule(rule.copyWith(severity: severity)),
                   itemBuilder: (context) => [
                     for (final severity in RuleSeverity.values)
                       PopupMenuItem(
@@ -2835,18 +2930,66 @@ class DemoScriptPage extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         for (final step in const [
-          ('Queue', 'Open the full officer action queue.', Icons.list_alt_rounded),
-          ('6-day maturity', 'Open the critical FDR deadline.', Icons.event_outlined),
-          ('Reminder scan', 'Run the reminder scan and review counts.', Icons.notifications_active_outlined),
-          ('Renewal lineage', 'Open the parent and child FDR chain.', Icons.account_tree_outlined),
-          ('Amount mismatch', 'Open the blocking discrepancy.', Icons.warning_amber_rounded),
-          ('Duplicate FDR', 'Open the duplicate reference check.', Icons.content_copy_rounded),
-          ('Correct and re-verify', 'Open the correction workflow.', Icons.edit_note_rounded),
-          ('Release checklist', 'Open the staged release case.', Icons.fact_check_outlined),
-          ('Parallel clearances', 'Review Grievance and Vigilance states.', Icons.account_tree_outlined),
-          ('Audit verify', 'Verify the persisted audit chain.', Icons.verified_outlined),
-          ('Tamper detect', 'Test detection and restore the stored chain.', Icons.security_outlined),
-          ('Updated queue counts', 'Return to the queue after completing an action.', Icons.refresh_rounded),
+          (
+            'Queue',
+            'Open the full officer action queue.',
+            Icons.list_alt_rounded,
+          ),
+          (
+            '6-day maturity',
+            'Open the critical FDR deadline.',
+            Icons.event_outlined,
+          ),
+          (
+            'Reminder scan',
+            'Run the reminder scan and review counts.',
+            Icons.notifications_active_outlined,
+          ),
+          (
+            'Renewal lineage',
+            'Open the parent and child FDR chain.',
+            Icons.account_tree_outlined,
+          ),
+          (
+            'Amount mismatch',
+            'Open the blocking discrepancy.',
+            Icons.warning_amber_rounded,
+          ),
+          (
+            'Duplicate FDR',
+            'Open the duplicate reference check.',
+            Icons.content_copy_rounded,
+          ),
+          (
+            'Correct and re-verify',
+            'Open the correction workflow.',
+            Icons.edit_note_rounded,
+          ),
+          (
+            'Release checklist',
+            'Open the staged release case.',
+            Icons.fact_check_outlined,
+          ),
+          (
+            'Parallel clearances',
+            'Review Grievance and Vigilance states.',
+            Icons.account_tree_outlined,
+          ),
+          (
+            'Audit verify',
+            'Verify the persisted audit chain.',
+            Icons.verified_outlined,
+          ),
+          (
+            'Tamper detect',
+            'Test detection and restore the stored chain.',
+            Icons.security_outlined,
+          ),
+          (
+            'Updated queue counts',
+            'Return to the queue after completing an action.',
+            Icons.refresh_rounded,
+          ),
         ])
           Card(
             child: ListTile(
@@ -2867,33 +3010,47 @@ class DemoScriptPage extends StatelessWidget {
   void _openStep(BuildContext context, String step) {
     final store = DemoFdrPortalStore.instance;
     if (step == 'Queue' || step == 'Updated queue counts') {
-      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _FullActionQueuePage()));
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const _FullActionQueuePage()),
+      );
       return;
     }
     if (step == 'Audit verify' || step == 'Tamper detect') {
-      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _AuditTrailPage()));
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const _AuditTrailPage()));
       return;
     }
     if (step == 'Release checklist' || step == 'Parallel clearances') {
       store.createReleaseCase();
-      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _ReleaseCasePage()));
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const _ReleaseCasePage()));
       return;
     }
     if (step == '6-day maturity') {
-      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _DeadlineFocusPage()));
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const _DeadlineFocusPage()),
+      );
       return;
     }
     if (step == 'Reminder scan') {
-      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _ReminderScanPage()));
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const _ReminderScanPage()),
+      );
       return;
     }
     if (step == 'Renewal lineage') {
-      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _RenewalLineagePage()));
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const _RenewalLineagePage()),
+      );
       return;
     }
     if (step == 'Correct and re-verify') {
       store.selectSubmission('FDR-2026-00128');
-      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _CorrectDetailsPage()));
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const _CorrectDetailsPage()),
+      );
       return;
     }
     if (step == 'Amount mismatch' || step == 'Duplicate FDR') {
@@ -2903,12 +3060,18 @@ class DemoScriptPage extends StatelessWidget {
       store.createReleaseCase();
       store.runCurrentVerification();
       Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const _VerificationResultsPage()),
+        MaterialPageRoute<void>(
+          builder: (_) => const _VerificationResultsPage(),
+        ),
       );
       return;
     }
     store.selectSubmission('FDR-2026-00124');
-    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _FdrVerificationDetailPage()));
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const _FdrVerificationDetailPage(),
+      ),
+    );
   }
 }
 
@@ -2918,7 +3081,9 @@ class _DeadlineFocusPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final item = DemoFdrPortalStore.instance.deadlineItems
-        .where((deadline) => deadline.submission.submissionId == 'FDR-2026-00124')
+        .where(
+          (deadline) => deadline.submission.submissionId == 'FDR-2026-00124',
+        )
         .firstOrNull;
     return OfficerPortalShell(
       title: '6-day maturity',
@@ -2928,7 +3093,9 @@ class _DeadlineFocusPage extends StatelessWidget {
           const _DemoNotice(),
           const SizedBox(height: 10),
           if (item == null)
-            const _InlineEmptyState(message: 'The six-day maturity record is unavailable.')
+            const _InlineEmptyState(
+              message: 'The six-day maturity record is unavailable.',
+            )
           else
             _DeadlineList(items: [item]),
         ],
@@ -2965,7 +3132,9 @@ class _ReminderScanPageState extends State<_ReminderScanPage> {
               icon: const Icon(Icons.notifications_active_outlined),
               label: const Text('Run Reminder Scan'),
             ),
-            Text('${store.lastReminderCreated} new reminders sent · ${store.lastReminderAlreadySent} already sent'),
+            Text(
+              '${store.lastReminderCreated} new reminders sent · ${store.lastReminderAlreadySent} already sent',
+            ),
           ],
         );
       },
@@ -2978,7 +3147,9 @@ class _RenewalLineagePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final records = DemoFdrPortalStore.instance.renewalLineage('FDR-EIT-771530');
+    final records = DemoFdrPortalStore.instance.renewalLineage(
+      'FDR-EIT-771530',
+    );
     return OfficerPortalShell(
       title: 'Renewal Lineage',
       body: ListView(
@@ -2988,9 +3159,15 @@ class _RenewalLineagePage extends StatelessWidget {
           const SizedBox(height: 10),
           for (var index = 0; index < records.length; index++)
             ListTile(
-              leading: Icon(index == 0 ? Icons.account_balance_outlined : Icons.subdirectory_arrow_right_rounded),
+              leading: Icon(
+                index == 0
+                    ? Icons.account_balance_outlined
+                    : Icons.subdirectory_arrow_right_rounded,
+              ),
               title: Text(records[index].fdrNumber),
-              subtitle: Text('${records[index].institution} · ${records[index].submissionStatus}\n${records[index].parentFdrReference == null ? 'Original FDR' : 'Renewed from ${records[index].parentFdrReference}'}'),
+              subtitle: Text(
+                '${records[index].institution} · ${records[index].submissionStatus}\n${records[index].parentFdrReference == null ? 'Original FDR' : 'Renewed from ${records[index].parentFdrReference}'}',
+              ),
             ),
         ],
       ),
@@ -3564,9 +3741,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
     return _formatSeedDate(date);
   }
 
-  String _dateMonthsBefore(DateTime date, int months) => _formatSeedDate(
-    DateTime(date.year, date.month - months, date.day),
-  );
+  String _dateMonthsBefore(DateTime date, int months) =>
+      _formatSeedDate(DateTime(date.year, date.month - months, date.day));
 
   String _formatSeedDate(DateTime date) =>
       '${date.day.toString().padLeft(2, '0')} ${const ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][date.month - 1]} ${date.year}';
@@ -3703,6 +3879,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
     ),
   };
   final Map<String, ReleaseCase> _releaseCases = <String, ReleaseCase>{};
+  final Map<String, OfficerClarification> _clarifications =
+      <String, OfficerClarification>{};
   final Map<String, FdrRecord> _fdrRecordsBySubmissionId = {
     'FDR-2026-00124': _blockedSubmission,
     'FDR-2026-00128': _rejectedSubmission,
@@ -3875,6 +4053,17 @@ class DemoFdrPortalStore extends ChangeNotifier {
   Map<String, String> get institutionRegistry =>
       Map.unmodifiable(_institutionRegistry);
   List<ReleaseCase> get releaseCases => List.unmodifiable(_releaseCases.values);
+  List<OfficerClarification> get clarifications =>
+      List.unmodifiable(_clarifications.values);
+
+  List<OfficerClarification> clarificationsForInstitution(
+    String institutionId,
+  ) => _clarifications.values
+      .where((item) => item.institutionId == institutionId)
+      .toList(growable: false);
+
+  OfficerClarification? clarificationForSubmission(String submissionId) =>
+      _clarifications[submissionId];
   VerificationSummary get lastVerification => _lastVerification;
   bool get verificationCurrent => _verificationCurrent;
   VerificationSummary get verificationResults => _verificationCurrent
@@ -3887,12 +4076,12 @@ class DemoFdrPortalStore extends ChangeNotifier {
           issues: [],
         );
   DemoVerificationScenario get verificationScenario => _verificationScenario;
-    ReleaseCase? get releaseCase =>
+  ReleaseCase? get releaseCase =>
       (_selectedReleaseCaseId == null
-        ? null
-        : _releaseCases.values
-          .where((item) => item.caseId == _selectedReleaseCaseId)
-          .firstOrNull) ??
+          ? null
+          : _releaseCases.values
+                .where((item) => item.caseId == _selectedReleaseCaseId)
+                .firstOrNull) ??
       _releaseCases[_selectedCaseType];
   String get selectedCaseType => _selectedCaseType;
   FdrRecord get originalFdrRecord => _currentSubmission;
@@ -3940,7 +4129,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
     final claims = portalAuthService.currentClaims;
     final configured = switch (action) {
       'verify FDR submissions' => permissionMatrix['verify']!,
-      'approve FDR submissions' || 'approve progressive closure' ||
+      'approve FDR submissions' ||
+      'approve progressive closure' ||
       'approve merger cases' => permissionMatrix['approve']!,
       'issue final NOC' => permissionMatrix['issueNoc']!,
       'update Grievance Redressal Cell clearance' =>
@@ -3955,7 +4145,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
         action: 'Access denied',
         associatedId: action,
         actorRole: claims?.role.name ?? 'anonymous',
-        payload: 'Required roles: ${configured.map((role) => role.name).join(', ')}',
+        payload:
+            'Required roles: ${configured.map((role) => role.name).join(', ')}',
       );
       throw PermissionDeniedException('You do not have permission to $action.');
     }
@@ -3966,7 +4157,9 @@ class DemoFdrPortalStore extends ChangeNotifier {
         actorRole: claims.role.name,
         payload: 'Institution scope mismatch',
       );
-      throw PermissionDeniedException('You can only access your institution data.');
+      throw PermissionDeniedException(
+        'You can only access your institution data.',
+      );
     }
   }
 
@@ -4010,10 +4203,12 @@ class DemoFdrPortalStore extends ChangeNotifier {
     if (rawEntries is List) {
       _auditEntries
         ..clear()
-        ..addAll(rawEntries.whereType<Map<String, dynamic>>().map(_auditFromJson));
+        ..addAll(
+          rawEntries.whereType<Map<String, dynamic>>().map(_auditFromJson),
+        );
     }
-      _auditAnchor = null;
-      _auditBackup = null;
+    _auditAnchor = null;
+    _auditBackup = null;
     final rawAnchor = await readJson(storage, 'aicte.auditAnchor');
     if (rawAnchor != null) {
       _auditAnchor = AuditChainAnchor(
@@ -4029,10 +4224,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
     final chainVersion = (stored?['schemaVersion'] as num?)?.toInt();
     final version = storedVersion ?? chainVersion ?? 0;
     if (version <= _auditSchemaVersion && _auditIntegrity!.isValid) {
-      await storage.write(
-        'aicte.auditSchemaVersion',
-        '$_auditSchemaVersion',
-      );
+      await storage.write('aicte.auditSchemaVersion', '$_auditSchemaVersion');
     }
     notifyListeners();
   }
@@ -4073,7 +4265,10 @@ class DemoFdrPortalStore extends ChangeNotifier {
     final stored = await readJson(_auditStorage, 'aicte.auditChain');
     final rawEntries = stored?['entries'];
     final entries = rawEntries is List
-        ? rawEntries.whereType<Map<String, dynamic>>().map(_auditFromJson).toList()
+        ? rawEntries
+              .whereType<Map<String, dynamic>>()
+              .map(_auditFromJson)
+              .toList()
         : _auditEntries;
     _auditIntegrity = verifyAuditChain(entries, anchor: _auditAnchor);
     notifyListeners();
@@ -4088,7 +4283,10 @@ class DemoFdrPortalStore extends ChangeNotifier {
       final last = Map<String, dynamic>.from(entries.last as Map);
       last['payload'] = '${last['payload']} altered';
       entries[entries.length - 1] = last;
-      await _auditStorage.write('aicte.auditChain', jsonEncode({'entries': entries}));
+      await _auditStorage.write(
+        'aicte.auditChain',
+        jsonEncode({'entries': entries}),
+      );
     }
     await verifyPersistedAuditChain();
   }
@@ -4103,8 +4301,10 @@ class DemoFdrPortalStore extends ChangeNotifier {
     await _persistAuditChain();
     notifyListeners();
   }
+
   List<RuleConfig> get rules => List.unmodifiable(_rules.values);
-  List<Discrepancy> get discrepancies => List.unmodifiable(_discrepancies.values);
+  List<Discrepancy> get discrepancies =>
+      List.unmodifiable(_discrepancies.values);
 
   void reconcileDiscrepancies(
     VerificationSummary summary, {
@@ -4121,7 +4321,11 @@ class DemoFdrPortalStore extends ChangeNotifier {
       final reopened = previous?.status == DiscrepancyStatus.resolved;
       final event = DiscrepancyEvent(
         actor: actor,
-        action: reopened ? 'Reopened' : previous == null ? 'Detected' : 'Confirmed',
+        action: reopened
+            ? 'Reopened'
+            : previous == null
+            ? 'Detected'
+            : 'Confirmed',
         remark: issue.message,
         at: _clock.now(),
       );
@@ -4179,7 +4383,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
     if (item.severity != VerificationIssueSeverity.warning) {
       throw StateError('Only warning discrepancies may be waived.');
     }
-    if (remark.trim().isEmpty) throw ArgumentError('A waiver remark is required.');
+    if (remark.trim().isEmpty)
+      throw ArgumentError('A waiver remark is required.');
     _discrepancies[id] = Discrepancy(
       id: item.id,
       ruleId: item.ruleId,
@@ -4205,6 +4410,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
     );
     notifyListeners();
   }
+
   DateTime? get lastReminderScanAt => _lastReminderScanAt;
   int get lastReminderCreated => _lastReminderCreated;
   int get lastReminderAlreadySent => _lastReminderAlreadySent;
@@ -4233,9 +4439,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
     }),
   );
 
-  List<CaseHistoryEvent> caseHistory(String caseId) => _releaseCases[caseId]
-          ?.history ??
-      const [];
+  List<CaseHistoryEvent> caseHistory(String caseId) =>
+      _releaseCases[caseId]?.history ?? const [];
 
   List<int>? documentBytes(String documentId) => _documentBytes[documentId];
 
@@ -4245,12 +4450,12 @@ class DemoFdrPortalStore extends ChangeNotifier {
     String caseId,
     CaseStatus to,
     String actor,
-    String reason,
-    {String? displayStatus}
-  ) {
+    String reason, {
+    String? displayStatus,
+  }) {
     final entry = _releaseCases.entries
-      .where((item) => item.value.caseId == caseId)
-      .firstOrNull;
+        .where((item) => item.value.caseId == caseId)
+        .firstOrNull;
     final current = entry?.value;
     if (current == null) {
       throw InvalidTransitionException('Case $caseId was not found.');
@@ -4262,7 +4467,9 @@ class DemoFdrPortalStore extends ChangeNotifier {
     final eligibility = ReleaseEligibilityService.evaluate(
       record: current,
       verification: verificationForEligibility,
-      originalFdrExists: _demoFdrRecords.containsKey(current.originalFdrReference),
+      originalFdrExists: _demoFdrRecords.containsKey(
+        current.originalFdrReference,
+      ),
     );
     if (to == CaseStatus.readyForNoc && !eligibility.canAdvance) {
       throw InvalidTransitionException(
@@ -4294,7 +4501,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
       message: 'Case $caseId is now $nextLabel.',
       category: NotificationCategory.request,
       relatedId: caseId,
-      eventKey: 'case-status-$caseId-${to.name}-${event.at.microsecondsSinceEpoch}',
+      eventKey:
+          'case-status-$caseId-${to.name}-${event.at.microsecondsSinceEpoch}',
     );
     notifyListeners();
   }
@@ -4305,7 +4513,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
       action: 'Verification rule changed',
       associatedId: rule.id,
       actorRole: 'Demo Officer',
-      payload: '${rule.enabled ? 'enabled' : 'disabled'}; ${rule.severity.name}',
+      payload:
+          '${rule.enabled ? 'enabled' : 'disabled'}; ${rule.severity.name}',
     );
     notifyListeners();
   }
@@ -4407,12 +4616,18 @@ class DemoFdrPortalStore extends ChangeNotifier {
       throw ArgumentError('Renewal FDR number must be unique.');
     }
     if (amount <= 0 || tenureMonths <= 0) {
-      throw ArgumentError('Renewal amount and tenure must be greater than zero.');
+      throw ArgumentError(
+        'Renewal amount and tenure must be greater than zero.',
+      );
     }
     final parsedIssue = _parsePortalDate(issueDate);
     final parentMaturity = _parsePortalDate(parentRecord.maturityDate);
-    if (parsedIssue == null || parentMaturity == null || parsedIssue.isBefore(parentMaturity)) {
-      throw ArgumentError('Renewal issue date must be on or after parent maturity.');
+    if (parsedIssue == null ||
+        parentMaturity == null ||
+        parsedIssue.isBefore(parentMaturity)) {
+      throw ArgumentError(
+        'Renewal issue date must be on or after parent maturity.',
+      );
     }
     final maturity = DateTime(
       parsedIssue.year,
@@ -4456,8 +4671,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
       fdrReference: newFdrNumber,
       amount: amount,
     );
-    _fdrRecordsBySubmissionId[parentSubmission.submissionId] =
-        parentRecord.copyWith(submissionStatus: 'Renewed');
+    _fdrRecordsBySubmissionId[parentSubmission.submissionId] = parentRecord
+        .copyWith(submissionStatus: 'Renewed');
     appendAuditEntry(
       action: 'FDR renewal created',
       associatedId: id,
@@ -4556,13 +4771,38 @@ class DemoFdrPortalStore extends ChangeNotifier {
     required int amount,
     List<DemoDocument> documents = const [],
   }) {
+    if (institution.trim().isEmpty ||
+        institutionId.trim().isEmpty ||
+        bank.trim().isEmpty ||
+        fdrNumber.trim().isEmpty ||
+        amount <= 0) {
+      throw ArgumentError(
+        'Institution, bank, FDR reference, and a positive amount are required.',
+      );
+    }
+    final claims = portalAuthService.currentClaims;
+    if (claims?.role == AuthRole.institution &&
+        claims?.institutionId != institutionId) {
+      throw PermissionDeniedException(
+        'The authenticated institution cannot submit for another institution.',
+      );
+    }
+    final normalizedFdrNumber = fdrNumber.trim();
+    if (_dashboardSubmissions.any(
+      (submission) =>
+          submission.caseType == 'FDR Submission' &&
+          submission.reference.toLowerCase() ==
+              normalizedFdrNumber.toLowerCase(),
+    )) {
+      throw ArgumentError('The FDR reference has already been submitted.');
+    }
     final submissionId = _newInstitutionSubmissionId();
     final record = FdrRecord(
       institution: institution,
       institutionId: institutionId,
       submissionId: submissionId,
       bank: bank,
-      fdrNumber: fdrNumber,
+      fdrNumber: normalizedFdrNumber,
       declaredDepositAmount: amount,
       receiptAmount: amount,
       issueDate: _shortDate(DateTime.now()),
@@ -4591,7 +4831,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
       institutionId: institutionId,
       submissionId: submissionId,
       submittedOn: _shortDate(DateTime.now()),
-      reference: fdrNumber,
+      reference: normalizedFdrNumber,
       amount: '₹${_formatCurrency(amount)}',
       status: VerificationStatus.pending,
       bankName: bank,
@@ -4612,7 +4852,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
       action: 'Institution FDR submission received',
       associatedId: submissionId,
       actorRole: 'Institution User',
-      payload: fdrNumber,
+      payload: normalizedFdrNumber,
     );
     NotificationCenter.instance.add(
       recipientRole: NotificationRecipientRole.officer,
@@ -4650,12 +4890,66 @@ class DemoFdrPortalStore extends ChangeNotifier {
     String effectiveDate = '',
     List<DemoDocument> documents = const [],
   }) {
-    if (caseType == 'Progressive Closure' &&
-        (requestedAmount <= 0 || requestedAmount > originalAmount)) {
+    const supportedCaseTypes = {
+      'Normal Release',
+      'Progressive Closure',
+      'Merger',
+    };
+    if (!supportedCaseTypes.contains(caseType)) {
+      throw ArgumentError('Unsupported release or refund request type.');
+    }
+    if (institution.trim().isEmpty ||
+        institutionId.trim().isEmpty ||
+        bank.trim().isEmpty ||
+        fdrNumber.trim().isEmpty ||
+        reason.trim().isEmpty ||
+        originalAmount <= 0) {
+      throw ArgumentError('Institution, FDR, amount, and reason are required.');
+    }
+    final claims = portalAuthService.currentClaims;
+    if (claims?.role == AuthRole.institution &&
+        claims?.institutionId != institutionId) {
+      throw PermissionDeniedException(
+        'The authenticated institution cannot submit for another institution.',
+      );
+    }
+    if (caseType == 'Merger' &&
+        (successorInstitution.trim().isEmpty ||
+            mergerReference.trim().isEmpty ||
+            effectiveDate.trim().isEmpty)) {
+      throw ArgumentError(
+        'Successor institution, merger reference, and effective date are required.',
+      );
+    }
+    final master = _demoFdrRecords[fdrNumber];
+    if (master == null ||
+        master.institutionId != institutionId ||
+        master.amount != originalAmount) {
+      throw ArgumentError(
+        'The selected FDR does not belong to this institution.',
+      );
+    }
+    final availableBalance = _availableBalanceForFdr(fdrNumber, institutionId);
+    if (caseType != 'Merger' &&
+        (requestedAmount <= 0 ||
+            requestedAmount > originalAmount ||
+            requestedAmount > availableBalance)) {
       throw ArgumentError(
         'Requested release amount must be within the FDR amount.',
       );
     }
+    final duplicate = _dashboardSubmissions
+        .where(
+          (submission) =>
+              submission.caseType == caseType &&
+              submission.institutionId == institutionId &&
+              submission.reference == fdrNumber &&
+              submission.requestedAmount == requestedAmount &&
+              submission.requestReason == reason.trim(),
+        )
+        .firstOrNull;
+    if (duplicate != null) return duplicate;
+
     final submissionId = _newInstitutionSubmissionId();
     final caseId = _newReleaseCaseId(caseType);
     final fdrRecord = FdrRecord(
@@ -4782,6 +5076,19 @@ class DemoFdrPortalStore extends ChangeNotifier {
     );
     notifyListeners();
     return submission;
+  }
+
+  int _availableBalanceForFdr(String fdrNumber, String institutionId) {
+    var balance = _demoFdrRecords[fdrNumber]?.amount ?? 0;
+    for (final item in _releaseCases.values) {
+      if (item.originalFdrReference == fdrNumber &&
+          item.originalInstitutionId == institutionId &&
+          item.caseType == 'Progressive Closure' &&
+          item.status == 'Approved') {
+        balance -= item.requestedReleaseAmount;
+      }
+    }
+    return balance;
   }
 
   void selectReleaseCase(String caseId) {
@@ -5051,8 +5358,16 @@ class DemoFdrPortalStore extends ChangeNotifier {
     return true;
   }
 
-  String _newInstitutionSubmissionId() =>
-      'FDR-${DateTime.now().year}-${(129 + _nextInstitutionSubmissionSequence++).toString().padLeft(5, '0')}';
+  String _newInstitutionSubmissionId() {
+    String candidate;
+    do {
+      candidate =
+          'FDR-${DateTime.now().year}-${(129 + _nextInstitutionSubmissionSequence++).toString().padLeft(5, '0')}';
+    } while (_dashboardSubmissions.any(
+      (submission) => submission.submissionId == candidate,
+    ));
+    return candidate;
+  }
 
   String _newReleaseCaseId(String caseType) {
     final prefix = switch (caseType) {
@@ -5085,6 +5400,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
     );
     _verificationCurrent = true;
     _releaseCases.clear();
+    _clarifications.clear();
     _discrepancies.clear();
     _mergerRelationships.clear();
     _selectedCaseType = 'Normal Release';
@@ -5176,37 +5492,62 @@ class DemoFdrPortalStore extends ChangeNotifier {
     _fdrRecordsBySubmissionId
       ..clear()
       ..['FDR-2026-00124'] = _blockedSubmission.copyWith(
-        issueDate: _dateMonthsBefore(_clock.now().add(const Duration(days: 6)), 36),
+        issueDate: _dateMonthsBefore(
+          _clock.now().add(const Duration(days: 6)),
+          36,
+        ),
         maturityDate: _dateRelative(6),
         declaredTenureMonths: 36,
         enteredTenureMonths: 36,
       )
       ..['FDR-2026-00125'] = _seededFdrRecord(
-        submissionId: 'FDR-2026-00125', fdrNumber: 'FDR-EX-884201',
-        institution: 'National College of Engineering', institutionId: 'INST-00125',
-        bank: 'National Commerce Bank', amount: 300000,
-        issueDate: _dateMonthsBefore(_clock.now().add(const Duration(days: 500)), 36),
+        submissionId: 'FDR-2026-00125',
+        fdrNumber: 'FDR-EX-884201',
+        institution: 'National College of Engineering',
+        institutionId: 'INST-00125',
+        bank: 'National Commerce Bank',
+        amount: 300000,
+        issueDate: _dateMonthsBefore(
+          _clock.now().add(const Duration(days: 500)),
+          36,
+        ),
         maturityDate: _dateRelative(500),
       )
       ..['FDR-2026-00126'] = _seededFdrRecord(
-        submissionId: 'FDR-2026-00126', fdrNumber: 'FDR-MI-719643',
-        institution: 'Metropolitan Institute of Science', institutionId: 'INST-00126',
-        bank: 'Metropolitan Bank', amount: 750000,
-        issueDate: _dateMonthsBefore(_clock.now().add(const Duration(days: 20)), 36),
+        submissionId: 'FDR-2026-00126',
+        fdrNumber: 'FDR-MI-719643',
+        institution: 'Metropolitan Institute of Science',
+        institutionId: 'INST-00126',
+        bank: 'Metropolitan Bank',
+        amount: 750000,
+        issueDate: _dateMonthsBefore(
+          _clock.now().add(const Duration(days: 20)),
+          36,
+        ),
         maturityDate: _dateRelative(20),
         sourceValues: {
           DocumentSource.fdrMaster: {'trustName': 'Example Educational Trust'},
-          DocumentSource.receipt: {'trustName': 'Metropolitan Education Society'},
-          DocumentSource.requestLetter: {'trustName': 'Example Educational Trust'},
+          DocumentSource.receipt: {
+            'trustName': 'Metropolitan Education Society',
+          },
+          DocumentSource.requestLetter: {
+            'trustName': 'Example Educational Trust',
+          },
           DocumentSource.affidavit: {'trustName': 'Example Educational Trust'},
         },
         lienInformation: 'Not provided',
       )
       ..['FDR-2026-00127'] = _seededFdrRecord(
-        submissionId: 'FDR-2026-00127', fdrNumber: 'FDR-EIT-771530',
-        institution: 'Example Institute of Technology', institutionId: 'INST-DEMO-0042',
-        bank: 'Civic Union Bank', amount: 350000,
-        issueDate: _dateMonthsBefore(_clock.now().add(const Duration(days: 30)), 36),
+        submissionId: 'FDR-2026-00127',
+        fdrNumber: 'FDR-EIT-771530',
+        institution: 'Example Institute of Technology',
+        institutionId: 'INST-DEMO-0042',
+        bank: 'Civic Union Bank',
+        amount: 350000,
+        issueDate: _dateMonthsBefore(
+          _clock.now().add(const Duration(days: 30)),
+          36,
+        ),
         maturityDate: _dateRelative(30),
       )
       ..['FDR-2026-00128'] = _rejectedSubmission.copyWith(
@@ -5216,10 +5557,14 @@ class DemoFdrPortalStore extends ChangeNotifier {
         enteredTenureMonths: 0,
       )
       ..['FDR-2026-00129'] = _seededFdrRecord(
-        submissionId: 'FDR-2026-00129', fdrNumber: 'FDR-EIT-330817',
-        institution: 'Example Institute of Technology', institutionId: 'INST-DEMO-0042',
-        bank: 'Example National Bank', amount: 425000,
-        issueDate: '03 October 2026', maturityDate: 'invalid-date',
+        submissionId: 'FDR-2026-00129',
+        fdrNumber: 'FDR-EIT-330817',
+        institution: 'Example Institute of Technology',
+        institutionId: 'INST-DEMO-0042',
+        bank: 'Example National Bank',
+        amount: 425000,
+        issueDate: '03 October 2026',
+        maturityDate: 'invalid-date',
         isDeliberateInvalidDate: true,
       );
     final renewedParent = _fdrRecordsBySubmissionId['FDR-2026-00127']!;
@@ -5302,13 +5647,14 @@ class DemoFdrPortalStore extends ChangeNotifier {
     _releaseCases['Normal Release'] = _releaseCases['Normal Release']!.copyWith(
       status: 'Ready for Final NOC',
       clearances: [
-        _releaseCases['Normal Release']!.clearances.first.copyWith(status: 'Cleared'),
+        _releaseCases['Normal Release']!.clearances.first.copyWith(
+          status: 'Cleared',
+        ),
         _releaseCases['Normal Release']!.clearances.last,
       ],
     );
-    _releaseCases['Progressive Closure'] = _releaseCases['Progressive Closure']!.copyWith(
-      status: 'Clearance Pending',
-    );
+    _releaseCases['Progressive Closure'] = _releaseCases['Progressive Closure']!
+        .copyWith(status: 'Clearance Pending');
     _releaseCases['Merger'] = _releaseCases['Merger']!.copyWith(
       status: 'Under Review',
     );
@@ -5471,6 +5817,157 @@ class DemoFdrPortalStore extends ChangeNotifier {
     _syncNormalReleaseStatus();
     notifyListeners();
   }
+
+  void requestClarification({
+    required String submissionId,
+    required String reviewSection,
+    required String remark,
+    String? requiredDocument,
+  }) {
+    _validateClarificationRemark(remark);
+    final submission = submissionById(submissionId);
+    if (submission == null) {
+      throw ArgumentError('Submission was not found.');
+    }
+    final existing = _clarifications[submissionId];
+    if (existing != null &&
+        existing.remark == remark.trim() &&
+        existing.status == 'Clarification Requested') {
+      return;
+    }
+    final officerId =
+        portalAuthService.currentClaims?.subject ?? 'officer-demo';
+    final clarification = OfficerClarification(
+      submissionId: submissionId,
+      caseId: submission.caseId,
+      institutionId: submission.institutionId,
+      institutionName: submission.institution,
+      officerId: officerId,
+      officerName: officerId,
+      reviewSection: reviewSection.trim(),
+      remark: remark.trim(),
+      requiredDocument: requiredDocument,
+      timestamp: _clock.now(),
+      status: 'Clarification Requested',
+    );
+    _clarifications[submissionId] = clarification;
+    _upsertSubmission(
+      _submissionWithStatus(
+        submission,
+        status: SubmissionStatus.correctionRequested,
+        issues: [
+          ...submission.issues,
+          '${reviewSection.trim()}: ${remark.trim()}',
+        ],
+      ),
+    );
+    appendAuditEntry(
+      action: 'Clarification requested',
+      associatedId: submission.caseId ?? submissionId,
+      actorRole: officerId,
+      payload: '${reviewSection.trim()}: ${remark.trim()}',
+    );
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.institution,
+      recipientId: submission.institutionId,
+      title: 'Clarification Requested',
+      message:
+          'Officer clarification is required for ${submission.reference}: ${remark.trim()}',
+      category: NotificationCategory.clarification,
+      relatedId: submission.caseId ?? submissionId,
+      eventKey: 'clarification-$submissionId',
+    );
+    notifyListeners();
+  }
+
+  void respondToFdrClarification({
+    required String submissionId,
+    required String response,
+    String? documentStatus,
+  }) {
+    if (response.trim().isEmpty) {
+      throw ArgumentError('A response is required.');
+    }
+    final current = _clarifications[submissionId];
+    final submission = submissionById(submissionId);
+    if (current == null || submission == null) {
+      throw ArgumentError('Clarification was not found.');
+    }
+    if (current.institutionId !=
+        (portalAuthService.currentClaims?.institutionId ??
+            current.institutionId)) {
+      throw PermissionDeniedException(
+        'This clarification belongs to another institution.',
+      );
+    }
+    final updated = current.copyWith(
+      response: response.trim(),
+      documentStatus: documentStatus,
+      responseTimestamp: _clock.now(),
+      status: 'Response Submitted',
+    );
+    _clarifications[submissionId] = updated;
+    _upsertSubmission(
+      _submissionWithStatus(
+        submission,
+        status: SubmissionStatus.pendingReview,
+        issues: submission.issues,
+      ),
+    );
+    appendAuditEntry(
+      action: 'Institution clarification response submitted',
+      associatedId: submission.caseId ?? submissionId,
+      actorRole: portalAuthService.currentClaims?.subject ?? 'Institution User',
+      payload: response.trim(),
+    );
+    NotificationCenter.instance.add(
+      recipientRole: NotificationRecipientRole.officer,
+      title: 'Clarification Response Received',
+      message:
+          '${submission.institution} responded for ${submission.reference}.',
+      category: NotificationCategory.clarification,
+      relatedId: submission.caseId ?? submissionId,
+      eventKey: 'clarification-response-$submissionId',
+    );
+    notifyListeners();
+  }
+
+  void _validateClarificationRemark(String? remark) {
+    final value = remark?.trim() ?? '';
+    if (value.length < 5 || value.split(RegExp(r'\s+')).length < 2) {
+      throw ArgumentError(
+        'Enter a meaningful officer remark describing the required action.',
+      );
+    }
+  }
+
+  FdrSubmission _submissionWithStatus(
+    FdrSubmission submission, {
+    required SubmissionStatus status,
+    required List<String> issues,
+  }) => FdrSubmission(
+    institution: submission.institution,
+    institutionId: submission.institutionId,
+    submissionId: submission.submissionId,
+    submittedOn: submission.submittedOn,
+    updatedAtOverride: _clock.now(),
+    reference: submission.reference,
+    amount: submission.amount,
+    status: status,
+    bankName: submission.bankName,
+    caseType: submission.caseType,
+    caseId: submission.caseId,
+    requestedAmount: submission.requestedAmount,
+    retainedBalance: submission.retainedBalance,
+    requestReason: submission.requestReason,
+    issues: issues.toSet().toList(growable: false),
+    rejectionReason: submission.rejectionReason,
+    correctionHistory: submission.correctionHistory,
+    verificationPassed: submission.verificationPassed,
+    approvedAt: submission.approvedAt,
+    approvedBy: submission.approvedBy,
+    supportedDocuments: submission.supportedDocuments,
+  );
 
   void setVerificationScenario(DemoVerificationScenario scenario) {
     _verificationScenario = scenario;
@@ -5638,7 +6135,10 @@ class DemoFdrPortalStore extends ChangeNotifier {
 
   VerificationSummary runCurrentVerification() {
     if (portalAuthService.currentClaims != null) {
-      requirePermission('verify FDR submissions', allowed: permissionMatrix['verify']!);
+      requirePermission(
+        'verify FDR submissions',
+        allowed: permissionMatrix['verify']!,
+      );
     }
     final summary = _verifyFdrRecord(_currentSubmission);
     setLastVerification(summary);
@@ -5874,7 +6374,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
       ),
     );
     final normal = _releaseCases['Normal Release'];
-    if (normal != null && normal.submissionId != _currentSubmission.submissionId) {
+    if (normal != null &&
+        normal.submissionId != _currentSubmission.submissionId) {
       _releaseCases['Normal Release'] = normal.copyWith(
         submissionId: _currentSubmission.submissionId,
         institution: _currentSubmission.institution,
@@ -5934,14 +6435,21 @@ class DemoFdrPortalStore extends ChangeNotifier {
                 claims.role == AuthRole.grievanceCell) ||
             (clearanceName == 'Vigilance Cell' &&
                 claims.role == AuthRole.vigilanceCell))) {
-      requirePermission('update $clearanceName clearance', allowed: {
-        AuthRole.officer,
-        if (clearanceName == 'Grievance Redressal Cell') AuthRole.grievanceCell,
-        if (clearanceName == 'Vigilance Cell') AuthRole.vigilanceCell,
-      });
+      requirePermission(
+        'update $clearanceName clearance',
+        allowed: {
+          AuthRole.officer,
+          if (clearanceName == 'Grievance Redressal Cell')
+            AuthRole.grievanceCell,
+          if (clearanceName == 'Vigilance Cell') AuthRole.vigilanceCell,
+        },
+      );
     }
     final currentCase = releaseCase;
     if (currentCase == null) return;
+    if (newStatus == 'Clarification Requested') {
+      _validateClarificationRemark(remark);
+    }
     final index = currentCase.clearances.indexWhere(
       (item) => item.name == clearanceName,
     );
@@ -5954,17 +6462,56 @@ class DemoFdrPortalStore extends ChangeNotifier {
           : [
               ...currentCase.clearances[index].remarkHistory,
               ClearanceRemark(
-                text: remark,
-                timestamp: DateTime.now().toLocal().toString().substring(0, 16),
-                officerId: 'officer-123',
+                text: remark.trim(),
+                timestamp: _clock.now().toIso8601String(),
+                officerId:
+                    portalAuthService.currentClaims?.subject ?? 'officer-demo',
+                officerName:
+                    portalAuthService.currentClaims?.subject ?? 'Demo Officer',
               ),
             ],
       lastUpdated: DateTime.now().toLocal().toString().substring(0, 16),
     );
     final clearances = [...currentCase.clearances];
     clearances[index] = updated;
-    _saveReleaseCase(currentCase.copyWith(clearances: clearances));
+    _saveReleaseCase(
+      currentCase.copyWith(
+        clearances: clearances,
+        status: newStatus == 'Clarification Requested'
+            ? 'Clarification Requested'
+            : currentCase.status,
+      ),
+    );
     if (newStatus == 'Clarification Requested') {
+      final clarification = OfficerClarification(
+        submissionId: currentCase.submissionId,
+        caseId: currentCase.caseId,
+        institutionId: currentCase.originalInstitutionId,
+        institutionName: currentCase.institution,
+        officerId: portalAuthService.currentClaims?.subject ?? 'officer-demo',
+        officerName: portalAuthService.currentClaims?.subject ?? 'Demo Officer',
+        reviewSection: clearanceName,
+        remark: remark!.trim(),
+        timestamp: _clock.now(),
+        status: 'Clarification Requested',
+      );
+      _clarifications[currentCase.submissionId] = clarification;
+      _upsertSubmission(
+        _submissionWithStatus(
+          submissionById(currentCase.submissionId)!,
+          status: SubmissionStatus.correctionRequested,
+          issues: [
+            ...submissionById(currentCase.submissionId)!.issues,
+            '${clearanceName}: ${remark.trim()}',
+          ],
+        ),
+      );
+      appendAuditEntry(
+        action: 'Clarification requested',
+        associatedId: currentCase.caseId,
+        actorRole: clarification.officerId,
+        payload: '${clarification.reviewSection}: ${clarification.remark}',
+      );
       NotificationCenter.instance.add(
         recipientRole: NotificationRecipientRole.institution,
         recipientId: currentCase.originalInstitutionId,
@@ -5973,8 +6520,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
             '$clearanceName requested clarification for case ${currentCase.caseId}.',
         category: NotificationCategory.clarification,
         relatedId: currentCase.caseId,
-        eventKey:
-            'clarification-${currentCase.caseId}-$clearanceName-${remark ?? ''}',
+        eventKey: 'clarification-${currentCase.caseId}-$clearanceName',
       );
     }
     _syncNormalReleaseStatus();
@@ -5995,6 +6541,13 @@ class DemoFdrPortalStore extends ChangeNotifier {
     }
     if (caseEntry == null || response.trim().isEmpty) return;
     final record = caseEntry.value;
+    final claims = portalAuthService.currentClaims;
+    if (claims?.role == AuthRole.institution &&
+        claims?.institutionId != record.originalInstitutionId) {
+      throw PermissionDeniedException(
+        'This case belongs to another institution.',
+      );
+    }
     final clearanceIndex = record.clearances.indexWhere(
       (item) => item.name == clearanceName,
     );
@@ -6007,7 +6560,16 @@ class DemoFdrPortalStore extends ChangeNotifier {
     );
     final clearances = [...record.clearances]
       ..[clearanceIndex] = updatedClearance;
-    _releaseCases[caseEntry.key] = record.copyWith(clearances: clearances);
+    _releaseCases[caseEntry.key] = record.copyWith(
+      clearances: clearances,
+      status: 'Response Submitted',
+    );
+    appendAuditEntry(
+      action: 'Institution clarification response submitted',
+      associatedId: record.caseId,
+      actorRole: claims?.subject ?? 'Institution User',
+      payload: response.trim(),
+    );
     NotificationCenter.instance.add(
       recipientRole: NotificationRecipientRole.officer,
       title: 'Clarification Response Received',
@@ -6015,8 +6577,7 @@ class DemoFdrPortalStore extends ChangeNotifier {
           '${record.institution} responded to $clearanceName for case ${record.caseId}.',
       category: NotificationCategory.clarification,
       relatedId: record.caseId,
-      eventKey:
-          'clarification-response-${record.caseId}-$clearanceName-${updatedClearance.responseTimestamp}',
+      eventKey: 'clarification-response-${record.caseId}-$clearanceName',
     );
     notifyListeners();
   }
@@ -6115,10 +6676,14 @@ class DemoFdrPortalStore extends ChangeNotifier {
     final bytes = file.bytes;
     final extension = (file.extension ?? '').toLowerCase();
     if (bytes == null || bytes.length > 5 * 1024 * 1024) {
-      throw ArgumentError('Document must be available as bytes and no larger than 5 MB.');
+      throw ArgumentError(
+        'Document must be available as bytes and no larger than 5 MB.',
+      );
     }
     if (!{'pdf', 'jpg', 'jpeg', 'png'}.contains(extension)) {
-      throw ArgumentError('Only PDF, JPG, JPEG, and PNG documents are supported.');
+      throw ArgumentError(
+        'Only PDF, JPG, JPEG, and PNG documents are supported.',
+      );
     }
     return uploadRequiredDocumentBytes(
       caseId: caseId,
@@ -6146,8 +6711,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
       mimeType: mimeType,
     );
     final caseEntry = _releaseCases.entries
-      .where((entry) => entry.value.caseId == caseId)
-      .firstOrNull;
+        .where((entry) => entry.value.caseId == caseId)
+        .firstOrNull;
     final currentCase = caseEntry?.value;
     if (currentCase == null) return null;
     final index = currentCase.checklist.indexWhere(
@@ -6161,7 +6726,10 @@ class DemoFdrPortalStore extends ChangeNotifier {
     );
     final version = previousVersions.isEmpty
         ? 1
-        : previousVersions.map((document) => document.version).reduce((a, b) => a > b ? a : b) + 1;
+        : previousVersions
+                  .map((document) => document.version)
+                  .reduce((a, b) => a > b ? a : b) +
+              1;
     final metadata = SupportedDocument(
       id: '$caseId-$requiredFileName-v$version',
       type: requiredFileName,
@@ -6197,7 +6765,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
       action: 'Document uploaded',
       associatedId: caseId,
       actorRole: 'Institution User',
-      payload: '$selectedFileName; SHA-256 ${metadata.sha256}; version $version',
+      payload:
+          '$selectedFileName; SHA-256 ${metadata.sha256}; version $version',
     );
     NotificationCenter.instance.add(
       recipientRole: NotificationRecipientRole.officer,
@@ -6270,7 +6839,10 @@ class DemoFdrPortalStore extends ChangeNotifier {
 
   void approveProgressiveClosureInDemoMode() {
     if (portalAuthService.currentClaims != null) {
-      requirePermission('approve progressive closure', allowed: {AuthRole.officer});
+      requirePermission(
+        'approve progressive closure',
+        allowed: {AuthRole.officer},
+      );
     }
     final currentCase = releaseCase;
     if (currentCase == null || currentCase.caseType != 'Progressive Closure') {
@@ -6317,7 +6889,8 @@ class DemoFdrPortalStore extends ChangeNotifier {
     final key = _selectedReleaseCaseId ?? _selectedCaseType;
     final current = _releaseCases[key];
     if (current == null || current.status == record.status) {
-      if (current != null && current.status == record.status &&
+      if (current != null &&
+          current.status == record.status &&
           record.history.length == current.history.length) {
         _releaseCases[key] = record.copyWith(
           history: [
@@ -6431,7 +7004,9 @@ String validateDocumentUpload({
     throw ArgumentError('Only PDF, JPG, JPEG, and PNG files are supported.');
   }
   if (bytes.isEmpty || bytes.length > 5 * 1024 * 1024) {
-    throw ArgumentError('Document must contain bytes and be no larger than 5 MB.');
+    throw ArgumentError(
+      'Document must contain bytes and be no larger than 5 MB.',
+    );
   }
   return expectedMime;
 }
@@ -6510,14 +7085,67 @@ class RuleConfig {
 }
 
 List<RuleConfig> defaultRuleConfigs() => const [
-  RuleConfig(id: 'deposit-amount', name: 'Amount tolerance', description: 'Compare deposit values.', severity: RuleSeverity.blocking, enabled: true, params: {'tolerance': 0}),
-  RuleConfig(id: 'date-consistency', name: 'Date consistency', description: 'Maturity follows issue date.', severity: RuleSeverity.blocking, enabled: true),
-  RuleConfig(id: 'tenure-consistency', name: 'Tenure tolerance', description: 'Tenure matches the date interval.', severity: RuleSeverity.blocking, enabled: true, params: {'toleranceMonths': 0}),
-  RuleConfig(id: 'institution-name-mismatch', name: 'Institution name similarity', description: 'Compare institution names.', severity: RuleSeverity.blocking, enabled: true, params: {'threshold': 0.8}),
-  RuleConfig(id: 'trust-name-mismatch', name: 'Trust name similarity', description: 'Compare trust names.', severity: RuleSeverity.warning, enabled: true, params: {'threshold': 0.8}),
-  RuleConfig(id: 'lien-information', name: 'Lien required', description: 'Require lien information.', severity: RuleSeverity.warning, enabled: true),
-  RuleConfig(id: 'maturity-warning', name: 'Maturity warning', description: 'Warn before maturity.', severity: RuleSeverity.warning, enabled: true, params: {'warningDays': 30}),
-  RuleConfig(id: 'duplicate-fdr', name: 'Duplicate FDR', description: 'Reject duplicate references.', severity: RuleSeverity.blocking, enabled: true),
+  RuleConfig(
+    id: 'deposit-amount',
+    name: 'Amount tolerance',
+    description: 'Compare deposit values.',
+    severity: RuleSeverity.blocking,
+    enabled: true,
+    params: {'tolerance': 0},
+  ),
+  RuleConfig(
+    id: 'date-consistency',
+    name: 'Date consistency',
+    description: 'Maturity follows issue date.',
+    severity: RuleSeverity.blocking,
+    enabled: true,
+  ),
+  RuleConfig(
+    id: 'tenure-consistency',
+    name: 'Tenure tolerance',
+    description: 'Tenure matches the date interval.',
+    severity: RuleSeverity.blocking,
+    enabled: true,
+    params: {'toleranceMonths': 0},
+  ),
+  RuleConfig(
+    id: 'institution-name-mismatch',
+    name: 'Institution name similarity',
+    description: 'Compare institution names.',
+    severity: RuleSeverity.blocking,
+    enabled: true,
+    params: {'threshold': 0.8},
+  ),
+  RuleConfig(
+    id: 'trust-name-mismatch',
+    name: 'Trust name similarity',
+    description: 'Compare trust names.',
+    severity: RuleSeverity.warning,
+    enabled: true,
+    params: {'threshold': 0.8},
+  ),
+  RuleConfig(
+    id: 'lien-information',
+    name: 'Lien required',
+    description: 'Require lien information.',
+    severity: RuleSeverity.warning,
+    enabled: true,
+  ),
+  RuleConfig(
+    id: 'maturity-warning',
+    name: 'Maturity warning',
+    description: 'Warn before maturity.',
+    severity: RuleSeverity.warning,
+    enabled: true,
+    params: {'warningDays': 30},
+  ),
+  RuleConfig(
+    id: 'duplicate-fdr',
+    name: 'Duplicate FDR',
+    description: 'Reject duplicate references.',
+    severity: RuleSeverity.blocking,
+    enabled: true,
+  ),
 ];
 
 class FdrRecord {
@@ -6604,7 +7232,7 @@ class FdrRecord {
     sourceValues: sourceValues ?? this.sourceValues,
     supportedDocuments: supportedDocuments ?? this.supportedDocuments,
     isDeliberateInvalidDate:
-      isDeliberateInvalidDate ?? this.isDeliberateInvalidDate,
+        isDeliberateInvalidDate ?? this.isDeliberateInvalidDate,
   );
 }
 
@@ -6756,7 +7384,7 @@ List<FdrDeadlineInfo> calculateFdrDeadlines(
           : status == MaturityStatus.invalid
           ? 'Review maturity date'
           : 'Monitor maturity window',
-          isRenewed: renewed,
+      isRenewed: renewed,
     );
   }).toList();
   results.sort((left, right) {
@@ -6836,7 +7464,9 @@ InstitutionRiskAssessment assessInstitutionRisk(
       .length;
   if (blocked > 0) {
     score += blocked * riskWeights['blocking discrepancy']!;
-    reasons.add('$blocked blocking discrepancies +${blocked * riskWeights['blocking discrepancy']!}');
+    reasons.add(
+      '$blocked blocking discrepancies +${blocked * riskWeights['blocking discrepancy']!}',
+    );
   }
   final corrections = records
       .where(
@@ -6847,7 +7477,9 @@ InstitutionRiskAssessment assessInstitutionRisk(
       .length;
   if (corrections > 0) {
     score += corrections * riskWeights['repeated correction']!;
-    reasons.add('$corrections repeated corrections +${corrections * riskWeights['repeated correction']!}');
+    reasons.add(
+      '$corrections repeated corrections +${corrections * riskWeights['repeated correction']!}',
+    );
   }
   final deadlines = calculateFdrDeadlines(records, today: today);
   final urgent = deadlines
@@ -6858,21 +7490,29 @@ InstitutionRiskAssessment assessInstitutionRisk(
       )
       .length;
   if (urgent > 0) {
-    final matured = deadlines.where((item) => item.status == MaturityStatus.matured && !item.isRenewed).length;
+    final matured = deadlines
+        .where(
+          (item) => item.status == MaturityStatus.matured && !item.isRenewed,
+        )
+        .length;
     final critical = urgent - matured;
     score += matured * riskWeights['matured FDR without renewal']!;
     score += critical * 5;
-    if (matured > 0) reasons.add('$matured matured FDR without renewal +${matured * riskWeights['matured FDR without renewal']!}');
-    if (critical > 0) reasons.add('$critical critical maturity item(s) +${critical * 5}');
+    if (matured > 0)
+      reasons.add(
+        '$matured matured FDR without renewal +${matured * riskWeights['matured FDR without renewal']!}',
+      );
+    if (critical > 0)
+      reasons.add('$critical critical maturity item(s) +${critical * 5}');
   }
   return InstitutionRiskAssessment(
     category: score >= 100
-      ? 'Critical'
-      : score >= 30
-      ? 'High'
-      : score >= 10
-      ? 'Medium'
-      : 'Low',
+        ? 'Critical'
+        : score >= 30
+        ? 'High'
+        : score >= 10
+        ? 'Medium'
+        : 'Low',
     score: score,
     reasons: reasons.isEmpty
         ? const ['No active risk factors found']
@@ -6937,7 +7577,8 @@ class StoreReportsRepository implements ReportsRepository {
   int get totalInstitutions => institutions(submissions).length;
 
   @override
-  int get totalDeposit => submissions.fold(0, (sum, item) => sum + item.depositAmount);
+  int get totalDeposit =>
+      submissions.fold(0, (sum, item) => sum + item.depositAmount);
 
   @override
   int get resolvedCount => submissions
@@ -6951,10 +7592,12 @@ class StoreReportsRepository implements ReportsRepository {
   };
 
   @override
-  Map<SubmissionStatus, int> get statusPercentages => statusPercentagesFor(submissions);
+  Map<SubmissionStatus, int> get statusPercentages =>
+      statusPercentagesFor(submissions);
 
   @override
-  Map<SubmissionStatus, int> get depositByStatus => totalDepositByStatus(submissions);
+  Map<SubmissionStatus, int> get depositByStatus =>
+      totalDepositByStatus(submissions);
 
   @override
   Map<String, int> get depositByBank => totalDepositByBank(submissions);
@@ -6980,9 +7623,21 @@ class StoreReportsRepository implements ReportsRepository {
   List<ActionQueueItem> get actionQueue => buildOfficerActionQueue(store);
 }
 
-enum QueueFilter { all, blocking, pendingReview, clearances, deadlines, corrections }
+enum QueueFilter {
+  all,
+  blocking,
+  pendingReview,
+  clearances,
+  deadlines,
+  corrections,
+}
 
-enum QueueTarget { verificationResults, releaseClearances, deadlineDetails, correction }
+enum QueueTarget {
+  verificationResults,
+  releaseClearances,
+  deadlineDetails,
+  correction,
+}
 
 QueueTarget queueTargetFor(ActionQueueItem item) {
   final categories = item.category.split(', ');
@@ -7017,32 +7672,30 @@ List<ActionQueueItem> buildOfficerActionQueue(
         submission.status == SubmissionStatus.correctionRequested) {
       final blocked =
           submission.status == SubmissionStatus.blocked ||
-            submission.issues.isNotEmpty;
-        final deadline = calculateFdrDeadlines(
-          [submission],
-          today: today,
-        ).first;
-        final hasDeadline = !deadline.isRenewed &&
-            (deadline.status == MaturityStatus.critical ||
-                deadline.status == MaturityStatus.matured);
-        final categories = <String>[
-          if (submission.status == SubmissionStatus.correctionRequested)
-            'Corrections'
-          else if (blocked)
-            'Blocking discrepancies'
-          else
-            'Pending review',
-          if (hasDeadline) 'Deadlines',
-        ];
-        final reasons = <String>[
-          if (submission.status == SubmissionStatus.correctionRequested)
-            'Correction requires review'
-          else if (blocked)
-            'Review blocking discrepancies'
-          else
-            'Awaiting officer review',
-          if (hasDeadline) deadline.nextAction,
-        ];
+          submission.issues.isNotEmpty;
+      final deadline = calculateFdrDeadlines([submission], today: today).first;
+      final hasDeadline =
+          !deadline.isRenewed &&
+          (deadline.status == MaturityStatus.critical ||
+              deadline.status == MaturityStatus.matured);
+      final categories = <String>[
+        if (submission.status == SubmissionStatus.correctionRequested)
+          'Corrections'
+        else if (blocked)
+          'Blocking discrepancies'
+        else
+          'Pending review',
+        if (hasDeadline) 'Deadlines',
+      ];
+      final reasons = <String>[
+        if (submission.status == SubmissionStatus.correctionRequested)
+          'Correction requires review'
+        else if (blocked)
+          'Review blocking discrepancies'
+        else
+          'Awaiting officer review',
+        if (hasDeadline) deadline.nextAction,
+      ];
       items.add(
         ActionQueueItem(
           id: 'submission-${submission.submissionId}',
@@ -7111,7 +7764,9 @@ List<ActionQueueItem> buildOfficerActionQueue(
             institution: existing.institution,
             reference: existing.reference,
             status: existing.status,
-            priority: existing.priority == 'High' || item.priority == 'High' ? 'High' : 'Routine',
+            priority: existing.priority == 'High' || item.priority == 'High'
+                ? 'High'
+                : 'Routine',
             reason: '${existing.reason}; ${item.reason}',
             relatedSubmissionId: existing.relatedSubmissionId,
             category: '${existing.category}, ${item.category}',
@@ -7123,10 +7778,15 @@ List<ActionQueueItem> buildOfficerActionQueue(
   result.sort((left, right) {
     final priority = {'High': 0, 'Routine': 1};
     return (priority[left.priority] ?? 2).compareTo(
-      priority[right.priority] ?? 2,
-    ) != 0
-        ? (priority[left.priority] ?? 2).compareTo(priority[right.priority] ?? 2)
-        : (left.dueDate ?? DateTime(9999)).compareTo(right.dueDate ?? DateTime(9999));
+              priority[right.priority] ?? 2,
+            ) !=
+            0
+        ? (priority[left.priority] ?? 2).compareTo(
+            priority[right.priority] ?? 2,
+          )
+        : (left.dueDate ?? DateTime(9999)).compareTo(
+            right.dueDate ?? DateTime(9999),
+          );
   });
   return List.unmodifiable(result);
 }
@@ -7139,6 +7799,7 @@ String buildSubmissionsCsv(Iterable<FdrSubmission> submissions) {
         : value;
     return '"${neutralized.replaceAll('"', '""')}"';
   }
+
   final rows = <String>[
     'Submission ID,Institution ID,Institution,FDR Reference,Case Type,Status,Amount,Submitted,Issues,Maturity Date',
   ];
@@ -7169,9 +7830,9 @@ Future<void> exportCsvReport(
   String fileName,
   String csv,
 ) async {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text('CSV report copied: $fileName')),
-  );
+  ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text('CSV report copied: $fileName')));
   try {
     final directory = await getTemporaryDirectory();
     final path = '${directory.path}/$fileName';
@@ -7189,7 +7850,9 @@ Future<void> exportCsvReport(
     await Clipboard.setData(ClipboardData(text: csv));
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Export unavailable; CSV copied to clipboard.')),
+        const SnackBar(
+          content: Text('Export unavailable; CSV copied to clipboard.'),
+        ),
       );
     }
   }
@@ -7207,12 +7870,15 @@ Future<String> writeCsvFile(String path, String csv) async {
 String? checksumForDocumentBytes(List<int>? bytes) =>
     bytes == null ? null : sha256.convert(bytes).toString();
 
-String buildInstitutionsCsv(
-  Map<String, InstitutionRiskAssessment> risks,
-) => [
+String buildInstitutionsCsv(Map<String, InstitutionRiskAssessment> risks) => [
   'Institution,Risk Category,Risk Score,Reasons',
   for (final entry in risks.entries)
-    [entry.key, entry.value.category, '${entry.value.score}', entry.value.reasons.join('; ')].map(_csvCell).join(','),
+    [
+      entry.key,
+      entry.value.category,
+      '${entry.value.score}',
+      entry.value.reasons.join('; '),
+    ].map(_csvCell).join(','),
 ].join('\r\n');
 
 String buildDeadlinesCsv(Iterable<FdrDeadlineInfo> deadlines) => [
@@ -7231,23 +7897,35 @@ String buildDeadlinesCsv(Iterable<FdrDeadlineInfo> deadlines) => [
 String buildAuditCsv(Iterable<AuditEntry> entries) => [
   'Event ID,Timestamp,Actor,Action,Associated ID,Payload,Previous Hash,Entry Hash',
   for (final entry in entries)
-    [entry.eventId, entry.timestamp, entry.actorRole, entry.action, entry.associatedId, entry.payload, entry.previousHash, entry.entryHash]
-        .map(_csvCell)
-        .join(','),
+    [
+      entry.eventId,
+      entry.timestamp,
+      entry.actorRole,
+      entry.action,
+      entry.associatedId,
+      entry.payload,
+      entry.previousHash,
+      entry.entryHash,
+    ].map(_csvCell).join(','),
 ].join('\r\n');
 
 String buildDiscrepanciesCsv(Iterable<FdrSubmission> submissions) => [
   'Submission ID,Institution,FDR,Issue',
   for (final submission in submissions)
     for (final issue in submission.issues)
-      [submission.submissionId, submission.institution, submission.reference, issue]
-          .map(_csvCell)
-          .join(','),
+      [
+        submission.submissionId,
+        submission.institution,
+        submission.reference,
+        issue,
+      ].map(_csvCell).join(','),
 ].join('\r\n');
 
 String _csvCell(String value) {
   final trimmed = value.trimLeft();
-  final safe = trimmed.isNotEmpty && '=+-@'.contains(trimmed[0]) ? "'$value" : value;
+  final safe = trimmed.isNotEmpty && '=+-@'.contains(trimmed[0])
+      ? "'$value"
+      : value;
   return '"${safe.replaceAll('"', '""')}"';
 }
 
@@ -7352,11 +8030,12 @@ enum CaseStatus {
 CaseStatus _caseStatusFromLabel(String label) => switch (label) {
   'Draft' => CaseStatus.draft,
   'Submitted' || 'Pending Review' => CaseStatus.submitted,
-  'Under Review' || 'Awaiting Clearances' || 'Blocked — FDR Verification' =>
-    CaseStatus.underReview,
+  'Under Review' ||
+  'Awaiting Clearances' ||
+  'Blocked — FDR Verification' => CaseStatus.underReview,
   'Clarification Requested' => CaseStatus.clarificationRequested,
-  'Clearance Pending' || 'Awaiting Required Documents' =>
-    CaseStatus.clearancePending,
+  'Clearance Pending' ||
+  'Awaiting Required Documents' => CaseStatus.clearancePending,
   'Ready for Final NOC' => CaseStatus.readyForNoc,
   'NOC Issued — Demo' => CaseStatus.nocIssued,
   'Rejected' || 'Returned for Correction' => CaseStatus.rejected,
@@ -7387,6 +8066,7 @@ const Map<CaseStatus, Set<CaseStatus>> ALLOWED_TRANSITIONS = {
   CaseStatus.submitted: {
     CaseStatus.underReview,
     CaseStatus.clearancePending,
+    CaseStatus.clarificationRequested,
     CaseStatus.approved,
     CaseStatus.rejected,
   },
@@ -7526,11 +8206,69 @@ class ClearanceRemark {
     required this.text,
     required this.timestamp,
     required this.officerId,
+    this.officerName = '',
   });
 
   final String text;
   final String timestamp;
   final String officerId;
+  final String officerName;
+}
+
+class OfficerClarification {
+  const OfficerClarification({
+    required this.submissionId,
+    this.caseId,
+    required this.institutionId,
+    required this.institutionName,
+    required this.officerId,
+    required this.officerName,
+    required this.reviewSection,
+    required this.remark,
+    required this.timestamp,
+    required this.status,
+    this.requiredDocument,
+    this.response,
+    this.documentStatus,
+    this.responseTimestamp,
+  });
+
+  final String submissionId;
+  final String? caseId;
+  final String institutionId;
+  final String institutionName;
+  final String officerId;
+  final String officerName;
+  final String reviewSection;
+  final String remark;
+  final String? requiredDocument;
+  final DateTime timestamp;
+  final String status;
+  final String? response;
+  final String? documentStatus;
+  final DateTime? responseTimestamp;
+
+  OfficerClarification copyWith({
+    String? response,
+    String? documentStatus,
+    DateTime? responseTimestamp,
+    String? status,
+  }) => OfficerClarification(
+    submissionId: submissionId,
+    caseId: caseId,
+    institutionId: institutionId,
+    institutionName: institutionName,
+    officerId: officerId,
+    officerName: officerName,
+    reviewSection: reviewSection,
+    remark: remark,
+    requiredDocument: requiredDocument,
+    timestamp: timestamp,
+    status: status ?? this.status,
+    response: response ?? this.response,
+    documentStatus: documentStatus ?? this.documentStatus,
+    responseTimestamp: responseTimestamp ?? this.responseTimestamp,
+  );
 }
 
 class AuditEntry {
@@ -7649,8 +8387,8 @@ AuditIntegrityResult verifyAuditChain(
         invalidEntryId: entry.eventId,
         invalidIndex: index,
         reason: entry.previousHash != previousHash
-          ? 'broken previous-hash link'
-          : 'hash mismatch',
+            ? 'broken previous-hash link'
+            : 'hash mismatch',
         message:
             'Tampering detected at audit entry ${entry.eventId}. The stored hash does not match the recalculated hash.',
       );
@@ -7711,18 +8449,22 @@ class FdrVerificationService {
         _ => fallback,
       };
     }
+
     final issues = <VerificationIssue>[];
     final comparisonMatrix = _comparisonMatrix(record);
 
     final amountDifference =
         (record.declaredDepositAmount - record.receiptAmount).abs();
     if (enabled('deposit-amount') &&
-      (record.declaredDepositAmount - record.receiptAmount).abs() >
-        (configuredRules['deposit-amount']?.params['tolerance'] ?? 0)) {
+        (record.declaredDepositAmount - record.receiptAmount).abs() >
+            (configuredRules['deposit-amount']?.params['tolerance'] ?? 0)) {
       issues.add(
         VerificationIssue(
           ruleId: 'deposit-amount',
-          severity: severityFor('deposit-amount', VerificationIssueSeverity.blocking),
+          severity: severityFor(
+            'deposit-amount',
+            VerificationIssueSeverity.blocking,
+          ),
           message:
               'Declared deposit amount does not match the receipt amount. Difference: ₹${_formatCurrency(amountDifference)}.',
           description:
@@ -7745,7 +8487,10 @@ class FdrVerificationService {
       issues.add(
         VerificationIssue(
           ruleId: 'lien-information',
-          severity: severityFor('lien-information', VerificationIssueSeverity.warning),
+          severity: severityFor(
+            'lien-information',
+            VerificationIssueSeverity.warning,
+          ),
           message: 'Lien information requires review.',
           description:
               'Lien information is missing or marked as not provided for this FDR.',
@@ -7758,12 +8503,16 @@ class FdrVerificationService {
     }
 
     final duplicateRecord = _duplicateRegistry[record.fdrNumber];
-    if (enabled('duplicate-fdr') && duplicateRecord != null &&
+    if (enabled('duplicate-fdr') &&
+        duplicateRecord != null &&
         duplicateRecord.institution != record.institution) {
       issues.add(
         VerificationIssue(
           ruleId: 'duplicate-fdr',
-          severity: severityFor('duplicate-fdr', VerificationIssueSeverity.blocking),
+          severity: severityFor(
+            'duplicate-fdr',
+            VerificationIssueSeverity.blocking,
+          ),
           message:
               'This FDR number already belongs to ${duplicateRecord.institution} under record ${duplicateRecord.fdrReference}.',
           description:
@@ -7795,11 +8544,14 @@ class FdrVerificationService {
         );
       }
     } else if (enabled('date-consistency') &&
-      !maturityDate.isAfter(issueDate)) {
+        !maturityDate.isAfter(issueDate)) {
       issues.add(
         VerificationIssue(
           ruleId: 'date-consistency',
-          severity: severityFor('date-consistency', VerificationIssueSeverity.blocking),
+          severity: severityFor(
+            'date-consistency',
+            VerificationIssueSeverity.blocking,
+          ),
           message: 'Issue and maturity dates are incomplete or inconsistent.',
           description: 'The maturity date must be after the issue date.',
           recommendedAction: 'Correct the issue and maturity dates.',
@@ -7813,14 +8565,19 @@ class FdrVerificationService {
           maturityDate.month -
           issueDate.month -
           (maturityDate.day < issueDate.day ? 1 : 0);
-        if (enabled('tenure-consistency') &&
+      if (enabled('tenure-consistency') &&
           record.declaredTenureMonths > 0 &&
           (record.declaredTenureMonths - months).abs() >
-            (configuredRules['tenure-consistency']?.params['toleranceMonths'] ?? 0)) {
+              (configuredRules['tenure-consistency']
+                      ?.params['toleranceMonths'] ??
+                  0)) {
         issues.add(
           VerificationIssue(
             ruleId: 'tenure-consistency',
-            severity: severityFor('tenure-consistency', VerificationIssueSeverity.blocking),
+            severity: severityFor(
+              'tenure-consistency',
+              VerificationIssueSeverity.blocking,
+            ),
             message:
                 'Declared tenure does not match the issue and maturity dates.',
             recommendedAction: 'Correct the declared tenure or maturity date.',
@@ -7833,7 +8590,8 @@ class FdrVerificationService {
           ),
         );
       }
-      if (enabled('maturity-warning') && maturityDate.isBefore(now) &&
+      if (enabled('maturity-warning') &&
+          maturityDate.isBefore(now) &&
           record.parentFdrReference == null) {
         issues.add(
           VerificationIssue(
@@ -7849,14 +8607,18 @@ class FdrVerificationService {
         );
       }
     }
-    if (enabled('institution-name-mismatch') && record.institutionNameOnDocuments != null &&
+    if (enabled('institution-name-mismatch') &&
+        record.institutionNameOnDocuments != null &&
         record.institutionNameOnDocuments!.trim().isNotEmpty &&
         record.institutionNameOnDocuments!.trim().toLowerCase() !=
             record.institution.trim().toLowerCase()) {
       issues.add(
         VerificationIssue(
           ruleId: 'institution-name-mismatch',
-          severity: severityFor('institution-name-mismatch', VerificationIssueSeverity.blocking),
+          severity: severityFor(
+            'institution-name-mismatch',
+            VerificationIssueSeverity.blocking,
+          ),
           message:
               'The institution name in supporting data does not match the registry.',
           recommendedAction:
@@ -7875,7 +8637,8 @@ class FdrVerificationService {
         .where((item) => item.field == 'institutionName')
         .firstOrNull;
     final institutionThreshold =
-        configuredRules['institution-name-mismatch']?.params['threshold'] ?? 0.8;
+        configuredRules['institution-name-mismatch']?.params['threshold'] ??
+        0.8;
     final institutionNames = institutionValues?.values.values
         .whereType<String>()
         .where((value) => value.trim().isNotEmpty)
@@ -7884,7 +8647,8 @@ class FdrVerificationService {
         record.sourceValues.isNotEmpty &&
         institutionNames != null &&
         institutionNames.any(
-          (name) => _similarity(record.institution, name) < institutionThreshold,
+          (name) =>
+              _similarity(record.institution, name) < institutionThreshold,
         ) &&
         !issues.any((issue) => issue.ruleId == 'institution-name-mismatch')) {
       issues.add(
@@ -7895,7 +8659,8 @@ class FdrVerificationService {
             VerificationIssueSeverity.blocking,
           ),
           message: 'The institution name differs across supporting sources.',
-          recommendedAction: 'Correct the institution name or supporting document.',
+          recommendedAction:
+              'Correct the institution name or supporting document.',
           affectedField: 'institutionName',
           sourceValues: {
             for (final entry in institutionValues!.values.entries)
@@ -7907,8 +8672,10 @@ class FdrVerificationService {
     }
 
     final trustValues = record.sourceValues.isEmpty
-      ? null
-      : comparisonMatrix.where((item) => item.field == 'trustName').firstOrNull;
+        ? null
+        : comparisonMatrix
+              .where((item) => item.field == 'trustName')
+              .firstOrNull;
     final trustThreshold =
         configuredRules['trust-name-mismatch']?.params['threshold'] ?? 0.8;
     final trustNames = trustValues?.values.values
@@ -7918,13 +8685,18 @@ class FdrVerificationService {
     if (enabled('trust-name-mismatch') &&
         trustNames != null &&
         trustNames.length > 1 &&
-        trustNames.skip(1).any(
-          (name) => _similarity(trustNames.first, name) < trustThreshold,
-        )) {
+        trustNames
+            .skip(1)
+            .any(
+              (name) => _similarity(trustNames.first, name) < trustThreshold,
+            )) {
       issues.add(
         VerificationIssue(
           ruleId: 'trust-name-mismatch',
-          severity: severityFor('trust-name-mismatch', VerificationIssueSeverity.blocking),
+          severity: severityFor(
+            'trust-name-mismatch',
+            VerificationIssueSeverity.blocking,
+          ),
           message: 'The trust name differs across supporting sources.',
           recommendedAction: 'Correct the trust name or supporting document.',
           affectedField: 'trustName',
@@ -7973,8 +8745,10 @@ class FdrVerificationService {
               'lienInfo': record.lienInformation,
             },
             DocumentSource.receipt: {
-              'institutionName': record.institutionNameOnDocuments ?? record.institution,
-              'trustName': record.institutionNameOnDocuments ?? record.institution,
+              'institutionName':
+                  record.institutionNameOnDocuments ?? record.institution,
+              'trustName':
+                  record.institutionNameOnDocuments ?? record.institution,
               'fdrNumber': record.fdrNumber,
               'bank': record.bank,
               'depositAmount': '${record.receiptAmount}',
@@ -7998,10 +8772,7 @@ class FdrVerificationService {
       'tenureMonths',
       'lienInfo',
     ];
-    return [
-      for (final field in fields)
-        _compareField(field, values),
-    ];
+    return [for (final field in fields) _compareField(field, values)];
   }
 
   static FieldComparison _compareField(
@@ -8009,14 +8780,19 @@ class FdrVerificationService {
     Map<DocumentSource, Map<String, String?>> values,
   ) {
     final row = <DocumentSource, String?>{
-      for (final source in DocumentSource.values) source: values[source]?[field],
+      for (final source in DocumentSource.values)
+        source: values[source]?[field],
     };
-    final present = row.values.where((value) => value?.trim().isNotEmpty ?? false).toSet();
+    final present = row.values
+        .where((value) => value?.trim().isNotEmpty ?? false)
+        .toSet();
     final differingSources = <DocumentSource>{};
     if (present.length > 1) {
       final first = present.first;
       for (final entry in row.entries) {
-        if (entry.value != null && entry.value!.trim().isNotEmpty && entry.value != first) {
+        if (entry.value != null &&
+            entry.value!.trim().isNotEmpty &&
+            entry.value != first) {
           differingSources.add(entry.key);
         }
       }
@@ -8055,7 +8831,12 @@ class FdrVerificationService {
         final above = distance[column];
         distance[column] = a[row - 1] == b[column - 1]
             ? diagonal
-            : 1 + [above, distance[column - 1], diagonal].reduce((x, y) => x < y ? x : y);
+            : 1 +
+                  [
+                    above,
+                    distance[column - 1],
+                    diagonal,
+                  ].reduce((x, y) => x < y ? x : y);
         diagonal = above;
       }
     }
@@ -8701,52 +9482,80 @@ class _VerificationResultsPageState extends State<_VerificationResultsPage> {
                   child: SizedBox(
                     width: 940,
                     child: DataTable(
-                    columnSpacing: 18,
-                    headingRowColor: WidgetStatePropertyAll(
-                      const Color(0xFFFFF7ED),
-                    ),
-                    columns: const [
-                      DataColumn(label: SizedBox(width: 110, child: Text('Field'))),
-                      DataColumn(label: SizedBox(width: 110, child: Text('FDR master'))),
-                      DataColumn(label: SizedBox(width: 110, child: Text('Receipt'))),
-                      DataColumn(label: SizedBox(width: 110, child: Text('Request letter'))),
-                      DataColumn(label: SizedBox(width: 110, child: Text('Affidavit'))),
-                      DataColumn(label: SizedBox(width: 110, child: Text('Result'))),
-                    ],
-                    rows: [
-                      for (final comparison in summary.comparisonMatrix)
-                        DataRow(
-                          cells: [
-                            DataCell(Text(comparison.field)),
-                            for (final source in DocumentSource.values)
-                              DataCell(
-                                Container(
-                                  constraints: const BoxConstraints(minWidth: 110),
-                                  color: comparison.differingSources.contains(source)
-                                      ? const Color(0xFFFFE4E6)
-                                      : null,
-                                  padding: const EdgeInsets.all(6),
-                                  child: Text(comparison.values[source] ?? 'Missing'),
-                                ),
-                              ),
-                            DataCell(
-                              Text(
-                                comparison.status == ComparisonStatus.allMatch
-                                    ? 'Match'
-                                    : comparison.status == ComparisonStatus.missing
-                                    ? 'Missing'
-                                    : 'Mismatch',
-                                style: TextStyle(
-                                  color: comparison.status == ComparisonStatus.allMatch
-                                      ? const Color(0xFF15803D)
-                                      : const Color(0xFFB91C1C),
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
+                      columnSpacing: 18,
+                      headingRowColor: WidgetStatePropertyAll(
+                        const Color(0xFFFFF7ED),
+                      ),
+                      columns: const [
+                        DataColumn(
+                          label: SizedBox(width: 110, child: Text('Field')),
                         ),
-                    ],
+                        DataColumn(
+                          label: SizedBox(
+                            width: 110,
+                            child: Text('FDR master'),
+                          ),
+                        ),
+                        DataColumn(
+                          label: SizedBox(width: 110, child: Text('Receipt')),
+                        ),
+                        DataColumn(
+                          label: SizedBox(
+                            width: 110,
+                            child: Text('Request letter'),
+                          ),
+                        ),
+                        DataColumn(
+                          label: SizedBox(width: 110, child: Text('Affidavit')),
+                        ),
+                        DataColumn(
+                          label: SizedBox(width: 110, child: Text('Result')),
+                        ),
+                      ],
+                      rows: [
+                        for (final comparison in summary.comparisonMatrix)
+                          DataRow(
+                            cells: [
+                              DataCell(Text(comparison.field)),
+                              for (final source in DocumentSource.values)
+                                DataCell(
+                                  Container(
+                                    constraints: const BoxConstraints(
+                                      minWidth: 110,
+                                    ),
+                                    color:
+                                        comparison.differingSources.contains(
+                                          source,
+                                        )
+                                        ? const Color(0xFFFFE4E6)
+                                        : null,
+                                    padding: const EdgeInsets.all(6),
+                                    child: Text(
+                                      comparison.values[source] ?? 'Missing',
+                                    ),
+                                  ),
+                                ),
+                              DataCell(
+                                Text(
+                                  comparison.status == ComparisonStatus.allMatch
+                                      ? 'Match'
+                                      : comparison.status ==
+                                            ComparisonStatus.missing
+                                      ? 'Missing'
+                                      : 'Mismatch',
+                                  style: TextStyle(
+                                    color:
+                                        comparison.status ==
+                                            ComparisonStatus.allMatch
+                                        ? const Color(0xFF15803D)
+                                        : const Color(0xFFB91C1C),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
                     ),
                   ),
                 ),
@@ -8830,7 +9639,8 @@ class _VerificationResultsPageState extends State<_VerificationResultsPage> {
                       variant: AppButtonVariant.secondary,
                       icon: Icons.refresh_rounded,
                       onPressed: () {
-                        final verificationSummary = store.runCurrentVerification();
+                        final verificationSummary = store
+                            .runCurrentVerification();
                         store.appendAuditEntry(
                           action: 'Verification rerun',
                           associatedId: store.currentSubmission.submissionId,
@@ -8873,7 +9683,9 @@ class _VerificationResultsPageState extends State<_VerificationResultsPage> {
                   variant: AppButtonVariant.destructive,
                   icon: Icons.assignment_return_outlined,
                   onPressed: () {
-                    final submission = store.submissionById(record.submissionId);
+                    final submission = store.submissionById(
+                      record.submissionId,
+                    );
                     if (submission == null) return;
                     store.rejectSubmission(
                       record.submissionId,
@@ -9022,7 +9834,7 @@ class _CorrectDetailsPageState extends State<_CorrectDetailsPage> {
         .copyWith(
           fdrNumber: _fdrNumberController.text.trim(),
           declaredDepositAmount: int.parse(_amountController.text.trim()),
-              receiptAmount: current.receiptAmount,
+          receiptAmount: current.receiptAmount,
           issueDate: _issueDateController.text.trim(),
           maturityDate: _maturityDateController.text.trim(),
           declaredTenureMonths: int.parse(_tenureController.text.trim()),
@@ -9877,7 +10689,10 @@ class _ReleaseCasePageState extends State<_ReleaseCasePage> {
                           ListTile(
                             dense: true,
                             contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.timeline_rounded, color: _orange),
+                            leading: const Icon(
+                              Icons.timeline_rounded,
+                              color: _orange,
+                            ),
                             title: Text(event.action),
                             subtitle: Text(
                               '${event.actor} · ${event.at.toLocal()}\n${event.remark}',
@@ -10686,7 +11501,8 @@ class _AuditTrailPageState extends State<_AuditTrailPage> {
           const SizedBox(height: 12),
           if (!integrity.isValid)
             const _InlineNotice(
-              message: 'Audit integrity is broken. Review the first invalid index and reason below.',
+              message:
+                  'Audit integrity is broken. Review the first invalid index and reason below.',
               color: Color(0xFFFEE2E2),
               textColor: Color(0xFF991B1B),
               icon: Icons.warning_amber_rounded,
@@ -10738,7 +11554,10 @@ class _AuditTrailPageState extends State<_AuditTrailPage> {
                 if (!integrity.isValid)
                   Text(
                     'First invalid index: ${integrity.invalidIndex ?? 'unknown'} · ${integrity.reason ?? 'unknown reason'}',
-                    style: const TextStyle(color: Color(0xFFB91C1C), fontSize: 11),
+                    style: const TextStyle(
+                      color: Color(0xFFB91C1C),
+                      fontSize: 11,
+                    ),
                   ),
                 const SizedBox(height: 12),
                 Row(
@@ -11136,12 +11955,12 @@ int _parseCurrency(String amount) =>
     int.tryParse(amount.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
 
 String _cleanPortalLabel(String value) => value
-  .replaceAll('INST-DEMO-', 'INST-')
-  .replaceAll(RegExp(r'\b(demo|live|mock)\b', caseSensitive: false), '')
-  .replaceAll(RegExp(r'\s+'), ' ')
-  .replaceAll(RegExp(r'\s*[-—–]\s*([,.;])'), r'$1')
-  .replaceAll(RegExp(r'\s*[-—–]\s*$'), '')
-  .trim();
+    .replaceAll('INST-DEMO-', 'INST-')
+    .replaceAll(RegExp(r'\b(demo|live|mock)\b', caseSensitive: false), '')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .replaceAll(RegExp(r'\s*[-—–]\s*([,.;])'), r'$1')
+    .replaceAll(RegExp(r'\s*[-—–]\s*$'), '')
+    .trim();
 
 String _statusLabel(SubmissionStatus status) => switch (status) {
   SubmissionStatus.pendingReview => 'Pending Review',

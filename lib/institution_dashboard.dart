@@ -102,6 +102,10 @@ class InstitutionDemoStore extends ChangeNotifier {
           .toList(growable: false)
         ..sort((left, right) => right.submittedOn.compareTo(left.submittedOn));
 
+  List<InstitutionSubmission> get fdrSubmissions => submissions
+      .where((record) => record.caseType == 'FDR Submission')
+      .toList(growable: false);
+
   List<InstitutionReleaseRequest> get releaseRequests => _store
       .dashboardSubmissions
       .where(
@@ -159,7 +163,9 @@ class InstitutionDemoStore extends ChangeNotifier {
     return null;
   }
 
-  List<InstitutionHistoryEvent> caseHistoryForInstitution(String institutionId) {
+  List<InstitutionHistoryEvent> caseHistoryForInstitution(
+    String institutionId,
+  ) {
     final events = <InstitutionHistoryEvent>[];
     for (final record in _store.releaseCases) {
       if (record.originalInstitutionId != institutionId) continue;
@@ -530,7 +536,7 @@ class _InstitutionHome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = InstitutionDemoStore.instance;
-    final records = store.submissions;
+    final records = store.fdrSubmissions;
     final pending = records
         .where((record) => record.status == InstitutionSubmissionStatus.pending)
         .length;
@@ -570,7 +576,7 @@ class _InstitutionHome extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 5),
-          const Text(
+          Text(
             _institutionName,
             style: TextStyle(
               color: _deepOrange,
@@ -675,7 +681,9 @@ class _InstitutionHome extends StatelessWidget {
             icon: Icons.timer_rounded,
             title: 'Deadline Command Center',
             count: DemoFdrPortalStore.instance.deadlineItems
-                .where((item) => item.submission.institutionId == _institutionId)
+                .where(
+                  (item) => item.submission.institutionId == _institutionId,
+                )
                 .length,
             subtitle: '4 FDRs · 1 needs review date',
             accentColor: const Color(0xFFEA580C),
@@ -690,7 +698,10 @@ class _InstitutionHome extends StatelessWidget {
             SummaryTile(
               icon: Icons.warning_amber_rounded,
               title: 'Items Requiring Attention',
-              count: attention.fold<int>(0, (sum, record) => sum + record.issues.length),
+              count: attention.fold<int>(
+                0,
+                (sum, record) => sum + record.issues.length,
+              ),
               subtitle: '5 items need action',
               accentColor: const Color(0xFFB91C1C),
               onTap: () => Navigator.of(context).push<void>(
@@ -727,7 +738,6 @@ class _InstitutionHome extends StatelessWidget {
   }
 }
 
-
 Future<void> _showInstitutionRenewalDialog(
   BuildContext context,
   String submissionId,
@@ -746,14 +756,31 @@ Future<void> _showInstitutionRenewalDialog(
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          TextField(controller: number, decoration: const InputDecoration(labelText: 'New FDR number')),
-          TextField(controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Amount')),
-          TextField(controller: issue, decoration: const InputDecoration(labelText: 'Issue date')),
-          TextField(controller: tenure, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Tenure months')),
+          TextField(
+            controller: number,
+            decoration: const InputDecoration(labelText: 'New FDR number'),
+          ),
+          TextField(
+            controller: amount,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Amount'),
+          ),
+          TextField(
+            controller: issue,
+            decoration: const InputDecoration(labelText: 'Issue date'),
+          ),
+          TextField(
+            controller: tenure,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Tenure months'),
+          ),
         ],
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
           onPressed: () {
             try {
@@ -767,9 +794,9 @@ Future<void> _showInstitutionRenewalDialog(
               );
               Navigator.pop(dialogContext);
             } on Object catch (error) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(error.toString())),
-              );
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(error.toString())));
             }
           },
           child: const Text('Create renewal'),
@@ -823,7 +850,9 @@ class _InstitutionDeadlineCenterContentState
       'Review Date': MaturityStatus.invalid,
     };
     final visible = widget.deadlines
-        .where((item) => filters[_filter] == null || item.status == filters[_filter])
+        .where(
+          (item) => filters[_filter] == null || item.status == filters[_filter],
+        )
         .toList(growable: false);
     return _InstitutionSubpage(
       title: 'Deadline Command Center',
@@ -836,7 +865,9 @@ class _InstitutionDeadlineCenterContentState
             children: [
               for (final entry in filters.entries)
                 ChoiceChip(
-                  label: Text('${entry.key} (${entry.value == null ? widget.deadlines.length : widget.deadlines.where((item) => item.status == entry.value).length})'),
+                  label: Text(
+                    '${entry.key} (${entry.value == null ? widget.deadlines.length : widget.deadlines.where((item) => item.status == entry.value).length})',
+                  ),
                   selected: _filter == entry.key,
                   onSelected: (_) => setState(() => _filter = entry.key),
                 ),
@@ -868,23 +899,46 @@ class _InstitutionDeadlineCenterContentState
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Expanded(
-                              child: Text(item.submission.reference, style: const TextStyle(color: _ink, fontWeight: FontWeight.w700)),
+                              child: Text(
+                                item.submission.reference,
+                                style: const TextStyle(
+                                  color: _ink,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
                             _StatusPill(status: item.status),
                           ],
                         ),
                         const SizedBox(height: 7),
-                        Text(item.submission.bankName, style: const TextStyle(color: _muted, fontSize: 12)),
+                        Text(
+                          item.submission.bankName,
+                          style: const TextStyle(color: _muted, fontSize: 12),
+                        ),
                         const SizedBox(height: 7),
-                        Text('Maturity: ${item.maturityDate == null ? 'Not available' : _formatDate(item.maturityDate!)} · ${item.daysRemaining == null ? 'Review date' : item.daysRemaining! < 0 ? '${item.daysRemaining!.abs()} days overdue' : '${item.daysRemaining} days remaining'}', style: const TextStyle(color: _muted, fontSize: 12)),
+                        Text(
+                          'Maturity: ${item.maturityDate == null ? 'Not available' : _formatDate(item.maturityDate!)} · ${item.daysRemaining == null
+                              ? 'Review date'
+                              : item.daysRemaining! < 0
+                              ? '${item.daysRemaining!.abs()} days overdue'
+                              : '${item.daysRemaining} days remaining'}',
+                          style: const TextStyle(color: _muted, fontSize: 12),
+                        ),
                         const SizedBox(height: 7),
-                        Text(item.nextAction, style: const TextStyle(color: _ink, fontSize: 12)),
-                        if (item.status != MaturityStatus.active && !item.isRenewed) ...[
+                        Text(
+                          item.nextAction,
+                          style: const TextStyle(color: _ink, fontSize: 12),
+                        ),
+                        if (item.status != MaturityStatus.active &&
+                            !item.isRenewed) ...[
                           const SizedBox(height: 10),
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton.icon(
-                              onPressed: () => _showInstitutionRenewalDialog(context, item.submission.submissionId),
+                              onPressed: () => _showInstitutionRenewalDialog(
+                                context,
+                                item.submission.submissionId,
+                              ),
                               icon: const Icon(Icons.autorenew_rounded),
                               label: const Text('Renew'),
                             ),
@@ -908,7 +962,7 @@ class _InstitutionAttentionPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final records = InstitutionDemoStore.instance.submissions
+    final records = InstitutionDemoStore.instance.fdrSubmissions
         .where((record) => record.institutionId == _institutionId)
         .where((record) => record.issues.isNotEmpty)
         .toList();
@@ -917,11 +971,40 @@ class _InstitutionAttentionPage extends StatelessWidget {
       for (final record in records)
         for (final issue in record.issues)
           (record: record, issue: issue, severity: _attentionSeverity(issue)),
+      for (final clarification
+          in DemoFdrPortalStore.instance.clarificationsForInstitution(
+            _institutionId,
+          ))
+        if (InstitutionDemoStore.instance.submissionById(
+              clarification.submissionId,
+            ) !=
+            null)
+          (
+            record: InstitutionDemoStore.instance.submissionById(
+              clarification.submissionId,
+            )!,
+            issue:
+                '${clarification.reviewSection}: ${clarification.remark}'
+                '${clarification.requiredDocument == null ? '' : ' · Document: ${clarification.requiredDocument}'}',
+            severity: _AttentionSeverity.blocking,
+          ),
     ];
-    final groups = <_AttentionSeverity, List<({InstitutionSubmission record, String issue, _AttentionSeverity severity})>>{
-      for (final severity in _AttentionSeverity.values)
-        severity: entries.where((entry) => entry.severity == severity).toList(),
-    };
+    final groups =
+        <
+          _AttentionSeverity,
+          List<
+            ({
+              InstitutionSubmission record,
+              String issue,
+              _AttentionSeverity severity,
+            })
+          >
+        >{
+          for (final severity in _AttentionSeverity.values)
+            severity: entries
+                .where((entry) => entry.severity == severity)
+                .toList(),
+        };
     final blockingCount = groups[_AttentionSeverity.blocking]!.length;
     final warningCount = groups[_AttentionSeverity.warning]!.length;
     final infoCount = groups[_AttentionSeverity.info]!.length;
@@ -933,20 +1016,36 @@ class _InstitutionAttentionPage extends StatelessWidget {
           Card(
             margin: EdgeInsets.zero,
             color: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: _line)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: _line),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Row(children: [
-                const Icon(Icons.checklist_rounded, color: _deepOrange),
-                const SizedBox(width: 10),
-                Expanded(child: Text('${entries.length} items need action', style: const TextStyle(color: _ink, fontWeight: FontWeight.w700))),
-              ]),
+              child: Row(
+                children: [
+                  const Icon(Icons.checklist_rounded, color: _deepOrange),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '${entries.length} items need action',
+                      style: const TextStyle(
+                        color: _ink,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 16),
           for (final severity in _AttentionSeverity.values)
             if (groups[severity]!.isNotEmpty) ...[
-              _SectionHeading(title: '${_severityLabel(severity)} (${groups[severity]!.length})'),
+              _SectionHeading(
+                title:
+                    '${_severityLabel(severity)} (${groups[severity]!.length})',
+              ),
               const SizedBox(height: 8),
               for (final entry in groups[severity]!)
                 Padding(
@@ -956,7 +1055,11 @@ class _InstitutionAttentionPage extends StatelessWidget {
                     issue: entry.issue,
                     severity: severity,
                     onTap: () => Navigator.of(context).push<void>(
-                      MaterialPageRoute<void>(builder: (_) => InstitutionSubmissionDetailPage(submissionId: entry.record.id)),
+                      MaterialPageRoute<void>(
+                        builder: (_) => InstitutionSubmissionDetailPage(
+                          submissionId: entry.record.id,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -965,14 +1068,30 @@ class _InstitutionAttentionPage extends StatelessWidget {
             Card(
               margin: EdgeInsets.zero,
               color: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: _line)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: const BorderSide(color: _line),
+              ),
               child: const Padding(
                 padding: EdgeInsets.all(16),
-                child: Row(children: [Icon(Icons.check_circle_outline_rounded, color: Color(0xFF15803D)), SizedBox(width: 10), Expanded(child: Text('No items need your attention.'))]),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.check_circle_outline_rounded,
+                      color: Color(0xFF15803D),
+                    ),
+                    SizedBox(width: 10),
+                    Expanded(child: Text('No items need your attention.')),
+                  ],
+                ),
               ),
             ),
           if (entries.isNotEmpty)
-            Semantics(label: 'Severity summary: $blockingCount blocking, $warningCount warnings, $infoCount info', child: const SizedBox.shrink()),
+            Semantics(
+              label:
+                  'Severity summary: $blockingCount blocking, $warningCount warnings, $infoCount info',
+              child: const SizedBox.shrink(),
+            ),
         ],
       ),
     );
@@ -1002,7 +1121,12 @@ String _severityLabel(_AttentionSeverity severity) => switch (severity) {
 };
 
 class _AttentionItemCard extends StatelessWidget {
-  const _AttentionItemCard({required this.record, required this.issue, required this.severity, required this.onTap});
+  const _AttentionItemCard({
+    required this.record,
+    required this.issue,
+    required this.severity,
+    required this.onTap,
+  });
 
   final InstitutionSubmission record;
   final String issue;
@@ -1012,20 +1136,38 @@ class _AttentionItemCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (icon, color, tint) = switch (severity) {
-      _AttentionSeverity.blocking => (Icons.error_outline_rounded, const Color(0xFFB91C1C), const Color(0xFFFEE2E2)),
-      _AttentionSeverity.warning => (Icons.warning_amber_rounded, const Color(0xFFB45309), const Color(0xFFFFEDD5)),
-      _AttentionSeverity.info => (Icons.info_outline_rounded, const Color(0xFF475569), const Color(0xFFE2E8F0)),
+      _AttentionSeverity.blocking => (
+        Icons.error_outline_rounded,
+        const Color(0xFFB91C1C),
+        const Color(0xFFFEE2E2),
+      ),
+      _AttentionSeverity.warning => (
+        Icons.warning_amber_rounded,
+        const Color(0xFFB45309),
+        const Color(0xFFFFEDD5),
+      ),
+      _AttentionSeverity.info => (
+        Icons.info_outline_rounded,
+        const Color(0xFF475569),
+        const Color(0xFFE2E8F0),
+      ),
     };
     final isLong = issue.length > 95;
-    final title = isLong && issue.toLowerCase().contains('duplicate') ? 'Duplicate FDR reference' : issue;
+    final title = isLong && issue.toLowerCase().contains('duplicate')
+        ? 'Duplicate FDR reference'
+        : issue;
     return Semantics(
       button: true,
-      label: '${_severityLabel(severity)} issue: $title. FDR ${record.fdrNumber}. Status ${record.status.displayLabel}.',
+      label:
+          '${_severityLabel(severity)} issue: $title. FDR ${record.fdrNumber}. Status ${record.status.displayLabel}.',
       child: Card(
         margin: EdgeInsets.zero,
         color: Colors.white,
         clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: _line)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: _line),
+        ),
         child: InkWell(
           onTap: onTap,
           child: Padding(
@@ -1033,26 +1175,57 @@ class _AttentionItemCard extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(width: 38, height: 38, decoration: BoxDecoration(color: tint, shape: BoxShape.circle), child: Icon(icon, color: color, size: 20)),
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: tint,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: color, size: 20),
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _ink, fontSize: 13, fontWeight: FontWeight.w700, height: 1.35)),
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: _ink,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          height: 1.35,
+                        ),
+                      ),
                       if (isLong) ...[
                         const SizedBox(height: 5),
-                        Text(issue, style: const TextStyle(color: _muted, fontSize: 12, height: 1.4)),
+                        Text(
+                          issue,
+                          style: const TextStyle(
+                            color: _muted,
+                            fontSize: 12,
+                            height: 1.4,
+                          ),
+                        ),
                       ],
                       const SizedBox(height: 5),
-                      Text('FDR ${record.fdrNumber}', style: const TextStyle(color: _muted, fontSize: 11)),
+                      Text(
+                        'FDR ${record.fdrNumber}',
+                        style: const TextStyle(color: _muted, fontSize: 11),
+                      ),
                       const SizedBox(height: 8),
                       _StatusPill(status: record.status),
                     ],
                   ),
                 ),
                 const SizedBox(width: 5),
-                const Padding(padding: EdgeInsets.only(top: 8), child: Icon(Icons.chevron_right_rounded, color: _muted)),
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Icon(Icons.chevron_right_rounded, color: _muted),
+                ),
               ],
             ),
           ),
@@ -1102,7 +1275,7 @@ class _InstitutionSubmissionList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final records = InstitutionDemoStore.instance.submissions;
+    final records = InstitutionDemoStore.instance.fdrSubmissions;
     final visible = statusFilter == null
         ? records
         : records.where((record) {
@@ -1206,6 +1379,9 @@ class InstitutionSubmissionDetailPage extends StatelessWidget {
       final releaseCase = record == null
           ? null
           : store.releaseCaseForSubmission(record.id);
+      final clarification = record == null
+          ? null
+          : DemoFdrPortalStore.instance.clarificationForSubmission(record.id);
       return _InstitutionSubpage(
         title: 'Submission Details',
         selectedTab: 1,
@@ -1280,6 +1456,37 @@ class InstitutionSubmissionDetailPage extends StatelessWidget {
                       },
                     ),
                   ],
+                  if (clarification != null) ...[
+                    const SizedBox(height: 12),
+                    _InfoPanel(
+                      title: 'Officer clarification',
+                      rows: {
+                        'Status': clarification.status,
+                        'Review section': clarification.reviewSection,
+                        'Officer':
+                            '${clarification.officerName} (${clarification.officerId})',
+                        'Remark': clarification.remark,
+                        if (clarification.requiredDocument != null)
+                          'Required document': clarification.requiredDocument!,
+                        if (clarification.response != null)
+                          'Response': clarification.response!,
+                        if (clarification.documentStatus != null)
+                          'Document status': clarification.documentStatus!,
+                      },
+                    ),
+                    if (clarification.status == 'Clarification Requested')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: OutlinedButton.icon(
+                          onPressed: () => _showFdrClarificationResponse(
+                            context,
+                            clarification: clarification,
+                          ),
+                          icon: const Icon(Icons.reply_outlined),
+                          label: const Text('Respond to clarification'),
+                        ),
+                      ),
+                  ],
                   if (releaseCase != null) ...[
                     const SizedBox(height: 12),
                     _InfoPanel(
@@ -1312,7 +1519,9 @@ class InstitutionSubmissionDetailPage extends StatelessWidget {
                               );
                             } on ArgumentError catch (error) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(error.message.toString())),
+                                SnackBar(
+                                  content: Text(error.message.toString()),
+                                ),
                               );
                             }
                           },
@@ -1334,7 +1543,11 @@ class InstitutionSubmissionDetailPage extends StatelessWidget {
                       _InfoPanel(
                         title: 'Case history',
                         rows: {
-                          for (var index = 0; index < releaseCase.history.length; index++)
+                          for (
+                            var index = 0;
+                            index < releaseCase.history.length;
+                            index++
+                          )
                             '${releaseCase.history[index].action} · ${releaseCase.history[index].at.toLocal()}':
                                 '${releaseCase.history[index].actor}: ${releaseCase.history[index].remark}',
                         },
@@ -1411,6 +1624,49 @@ class InstitutionSubmissionDetailPage extends StatelessWidget {
       );
     },
   );
+
+  Future<void> _showFdrClarificationResponse(
+    BuildContext context, {
+    required OfficerClarification clarification,
+  }) async {
+    final controller = TextEditingController();
+    final response = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Respond to clarification'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 3,
+          maxLines: 5,
+          decoration: const InputDecoration(
+            labelText: 'Response',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                Navigator.pop(context, controller.text.trim());
+              }
+            },
+            child: const Text('Submit response'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (response == null) return;
+    DemoFdrPortalStore.instance.respondToFdrClarification(
+      submissionId: clarification.submissionId,
+      response: response,
+    );
+  }
 
   Future<void> _showClarificationResponse(
     BuildContext context, {
@@ -1672,9 +1928,7 @@ class _InstitutionNewSubmissionPageState
     );
     Navigator.of(context).pop(true);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${submission.fdrNumber} added to submissions.'),
-      ),
+      SnackBar(content: Text('${submission.fdrNumber} added to submissions.')),
     );
   }
 
@@ -1797,7 +2051,7 @@ class _InstitutionReleaseRequestPageState
 
   @override
   Widget build(BuildContext context) {
-    final fdrs = InstitutionDemoStore.instance.submissions
+    final fdrs = InstitutionDemoStore.instance.fdrSubmissions
         .map((record) => record.fdrNumber)
         .toSet()
         .toList();
@@ -1872,7 +2126,7 @@ class _InstitutionReleaseRequestPageState
                     }
                     final selectedFdr = InstitutionDemoStore
                         .instance
-                        .submissions
+                        .fdrSubmissions
                         .where((record) => record.fdrNumber == _fdrNumber)
                         .firstOrNull;
                     if (_caseType == 'Progressive Closure' &&
@@ -2048,7 +2302,7 @@ class _InstitutionProfile extends StatelessWidget {
         ),
       ),
       const SizedBox(height: 18),
-      const _InfoPanel(
+      _InfoPanel(
         title: 'Institution profile',
         rows: {
           'Institution': _institutionName,
@@ -2067,7 +2321,11 @@ class _InstitutionProfile extends StatelessWidget {
 }
 
 class _InstitutionSubpage extends StatelessWidget {
-  const _InstitutionSubpage({required this.title, required this.child, this.selectedTab = 0});
+  const _InstitutionSubpage({
+    required this.title,
+    required this.child,
+    this.selectedTab = 0,
+  });
 
   final String title;
   final Widget child;
@@ -2099,10 +2357,26 @@ class _InstitutionSubpage extends StatelessWidget {
       backgroundColor: Colors.white,
       indicatorColor: const Color(0xFFFFE8D5),
       destinations: const [
-        NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
-        NavigationDestination(icon: Icon(Icons.fact_check_outlined), selectedIcon: Icon(Icons.fact_check_rounded), label: 'My Submissions'),
-        NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), selectedIcon: Icon(Icons.account_balance_wallet_rounded), label: 'Release / Refund'),
-        NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'Profile'),
+        NavigationDestination(
+          icon: Icon(Icons.home_outlined),
+          selectedIcon: Icon(Icons.home_rounded),
+          label: 'Home',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.fact_check_outlined),
+          selectedIcon: Icon(Icons.fact_check_rounded),
+          label: 'My Submissions',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.account_balance_wallet_outlined),
+          selectedIcon: Icon(Icons.account_balance_wallet_rounded),
+          label: 'Release / Refund',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.person_outline_rounded),
+          selectedIcon: Icon(Icons.person_rounded),
+          label: 'Profile',
+        ),
       ],
     ),
   );
@@ -2335,7 +2609,6 @@ class _QuickAction extends StatelessWidget {
     ),
   );
 }
-
 
 class _StatusPill extends StatelessWidget {
   const _StatusPill({required this.status});
@@ -2630,8 +2903,20 @@ const _monthNames = [
   'Nov',
   'Dec',
 ];
-const _institutionName = 'Example Institute of Technology';
-const _institutionId = 'INST-DEMO-0042';
+String get _institutionId =>
+    portalAuthService.currentClaims?.role == AuthRole.institution
+    ? portalAuthService.currentClaims!.institutionId ?? 'INST-DEMO-0042'
+    : 'INST-DEMO-0042';
+
+String get _institutionName {
+  final claims = portalAuthService.currentClaims;
+  if (claims?.role != AuthRole.institution ||
+      claims?.subject == 'institution-demo') {
+    return 'Example Institute of Technology';
+  }
+  return claims!.subject;
+}
+
 const _paper = Color(0xFFFFFBF7);
 const _orange = Color(0xFFF97316);
 const _deepOrange = Color(0xFFEA580C);

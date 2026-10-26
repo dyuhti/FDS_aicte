@@ -3,7 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fds_aicte/institution_dashboard.dart';
 import 'package:fds_aicte/main.dart';
+import 'package:fds_aicte/notification_center.dart';
 import 'package:fds_aicte/officer_dashboard.dart';
+import 'package:fds_aicte/portal_foundations.dart';
 
 void main() {
   setUp(() => InstitutionDemoStore.instance.resetDemoData());
@@ -238,10 +240,7 @@ void main() {
       find.textContaining('Officer Review Bank', findRichText: true),
       findsOneWidget,
     );
-    expect(
-      find.textContaining('INST-0042', findRichText: true),
-      findsWidgets,
-    );
+    expect(find.textContaining('INST-0042', findRichText: true), findsWidgets);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -315,6 +314,7 @@ void main() {
           mergerReference: caseType == 'Merger' ? 'MERGER-EIT-42' : '',
           effectiveDate: caseType == 'Merger' ? '01 Nov 2026' : '',
         );
+
         created.add(institutionStore.submissions.first);
       }
 
@@ -345,6 +345,91 @@ void main() {
         const MockOfficerDashboardRepository().summary['Total Institutions'],
         institutionCount,
       );
+    },
+  );
+
+  test(
+    'clarification ownership, exact remark, response, and notifications stay synchronized',
+    () async {
+      final store = DemoFdrPortalStore.instance;
+      final institutionStore = InstitutionDemoStore.instance;
+      final first = store.submitInstitutionFdr(
+        institution: 'Example Institute of Technology',
+        institutionId: 'INST-DEMO-0042',
+        bank: 'Clarification Bank',
+        fdrNumber: 'FDR-CLARIFICATION-9001',
+        amount: 300000,
+      );
+      final second = store.submitInstitutionFdr(
+        institution: 'Other Institute',
+        institutionId: 'INST-OTHER-9002',
+        bank: 'Other Bank',
+        fdrNumber: 'FDR-CLARIFICATION-9002',
+        amount: 400000,
+      );
+
+      store.requestClarification(
+        submissionId: first.submissionId,
+        reviewSection: 'FDR verification',
+        remark: 'Upload the signed bank confirmation letter.',
+        requiredDocument: 'bank_confirmation.pdf',
+      );
+      store.requestClarification(
+        submissionId: first.submissionId,
+        reviewSection: 'FDR verification',
+        remark: 'Upload the signed bank confirmation letter.',
+        requiredDocument: 'bank_confirmation.pdf',
+      );
+
+      final clarification = store.clarificationForSubmission(
+        first.submissionId,
+      );
+      expect(
+        clarification?.remark,
+        'Upload the signed bank confirmation letter.',
+      );
+      expect(clarification?.reviewSection, 'FDR verification');
+      expect(clarification?.requiredDocument, 'bank_confirmation.pdf');
+      expect(clarification?.status, 'Clarification Requested');
+      expect(
+        store.submissionById(first.submissionId)?.status,
+        SubmissionStatus.correctionRequested,
+      );
+      expect(
+        store.clarificationsForInstitution('INST-DEMO-0042'),
+        hasLength(1),
+      );
+      expect(store.clarificationsForInstitution('INST-OTHER-9002'), isEmpty);
+      expect(
+        NotificationCenter.instance
+            .forRecipient(
+              NotificationRecipientRole.institution,
+              recipientId: 'INST-DEMO-0042',
+              category: NotificationCategory.clarification,
+            )
+            .where((item) => item.relatedId == first.submissionId)
+            .length,
+        1,
+      );
+
+      await portalAuthService.authenticate('institution-demo', 'demo-password');
+      store.respondToFdrClarification(
+        submissionId: first.submissionId,
+        response: 'The signed bank confirmation letter is attached.',
+        documentStatus: 'bank_confirmation.pdf replaced',
+      );
+      final response = store.clarificationForSubmission(first.submissionId);
+      expect(response?.status, 'Response Submitted');
+      expect(
+        response?.response,
+        'The signed bank confirmation letter is attached.',
+      );
+      expect(response?.documentStatus, 'bank_confirmation.pdf replaced');
+      expect(
+        institutionStore.submissionById(second.submissionId)?.institutionId,
+        isNull,
+      );
+      expect(institutionStore.submissionById(first.submissionId), isNotNull);
     },
   );
 
