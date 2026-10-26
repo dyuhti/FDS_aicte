@@ -188,6 +188,13 @@ class InstitutionDemoStore extends ChangeNotifier {
     required String fdrNumber,
     required String bankName,
     required int amount,
+    int? receiptAmount,
+    String? issueDate,
+    String? maturityDate,
+    int declaredTenureMonths = 36,
+    int enteredTenureMonths = 36,
+    String lienInformation = 'No lien',
+    List<DemoDocument> documents = const [],
   }) {
     final submission = _store.submitInstitutionFdr(
       institution: _institutionName,
@@ -195,9 +202,22 @@ class InstitutionDemoStore extends ChangeNotifier {
       bank: bankName,
       fdrNumber: fdrNumber,
       amount: amount,
+      receiptAmount: receiptAmount ?? amount,
+      issueDate: issueDate ?? _defaultIssueDate(),
+      maturityDate: maturityDate ?? _defaultMaturityDate(),
+      declaredTenureMonths: declaredTenureMonths,
+      enteredTenureMonths: enteredTenureMonths,
+      lienInformation: lienInformation,
+      documents: documents,
     );
     return _fromOfficerSubmission(submission);
   }
+
+  String _defaultIssueDate() => _formatDate(DateTime.now());
+
+  String _defaultMaturityDate() => _formatDate(
+    DateTime(DateTime.now().year + 3, DateTime.now().month, DateTime.now().day),
+  );
 
   void addReleaseRequest({
     required String fdrNumber,
@@ -536,7 +556,7 @@ class _InstitutionHome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = InstitutionDemoStore.instance;
-    final records = store.fdrSubmissions;
+    final records = store.submissions;
     final pending = records
         .where((record) => record.status == InstitutionSubmissionStatus.pending)
         .length;
@@ -557,6 +577,18 @@ class _InstitutionHome extends StatelessWidget {
     final attention = records
         .where((record) => record.issues.isNotEmpty)
         .toList();
+    final clarificationCount = DemoFdrPortalStore.instance
+        .clarificationsForInstitution(_institutionId)
+        .where(
+          (clarification) => !attention.any(
+            (record) =>
+                record.id == clarification.submissionId &&
+                record.issues.any(
+                  (issue) => issue.contains(clarification.remark),
+                ),
+          ),
+        )
+        .length;
     final recent = records.take(4).toList();
 
     return RefreshIndicator(
@@ -693,16 +725,18 @@ class _InstitutionHome extends StatelessWidget {
               ),
             ),
           ),
-          if (attention.isNotEmpty) ...[
+          if (attention.isNotEmpty || clarificationCount > 0) ...[
             const SizedBox(height: 14),
             SummaryTile(
               icon: Icons.warning_amber_rounded,
               title: 'Items Requiring Attention',
-              count: attention.fold<int>(
-                0,
-                (sum, record) => sum + record.issues.length,
-              ),
-              subtitle: '5 items need action',
+              count:
+                  attention.fold<int>(
+                    0,
+                    (sum, record) => sum + record.issues.length,
+                  ) +
+                  clarificationCount,
+              subtitle: 'Open clarification and correction requests',
               accentColor: const Color(0xFFB91C1C),
               onTap: () => Navigator.of(context).push<void>(
                 MaterialPageRoute<void>(
@@ -962,7 +996,7 @@ class _InstitutionAttentionPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final records = InstitutionDemoStore.instance.fdrSubmissions
+    final records = InstitutionDemoStore.instance.submissions
         .where((record) => record.institutionId == _institutionId)
         .where((record) => record.issues.isNotEmpty)
         .toList();
@@ -979,15 +1013,19 @@ class _InstitutionAttentionPage extends StatelessWidget {
               clarification.submissionId,
             ) !=
             null)
-          (
-            record: InstitutionDemoStore.instance.submissionById(
-              clarification.submissionId,
-            )!,
-            issue:
-                '${clarification.reviewSection}: ${clarification.remark}'
-                '${clarification.requiredDocument == null ? '' : ' · Document: ${clarification.requiredDocument}'}',
-            severity: _AttentionSeverity.blocking,
-          ),
+          if (!records
+              .where((record) => record.id == clarification.submissionId)
+              .expand((record) => record.issues)
+              .any((issue) => issue.contains(clarification.remark)))
+            (
+              record: InstitutionDemoStore.instance.submissionById(
+                clarification.submissionId,
+              )!,
+              issue:
+                  '${clarification.reviewSection}: ${clarification.remark}'
+                  '${clarification.requiredDocument == null ? '' : ' · Document: ${clarification.requiredDocument}'}',
+              severity: _AttentionSeverity.blocking,
+            ),
     ];
     final groups =
         <
@@ -1910,12 +1948,36 @@ class _InstitutionNewSubmissionPageState
   final _bankController = TextEditingController();
   final _fdrController = TextEditingController();
   final _amountController = TextEditingController();
+  final _receiptAmountController = TextEditingController(text: '500000');
+  final _issueDateController = TextEditingController();
+  final _maturityDateController = TextEditingController();
+  final _declaredTenureController = TextEditingController(text: '36');
+  final _enteredTenureController = TextEditingController(text: '36');
+  final _lienController = TextEditingController(text: 'No lien');
+
+  @override
+  void initState() {
+    super.initState();
+    final today = DateTime.now();
+    final issueDate = _formatDate(today);
+    final maturityDate = _formatDate(
+      DateTime(today.year + 3, today.month, today.day),
+    );
+    _issueDateController.text = issueDate;
+    _maturityDateController.text = maturityDate;
+  }
 
   @override
   void dispose() {
     _bankController.dispose();
     _fdrController.dispose();
     _amountController.dispose();
+    _receiptAmountController.dispose();
+    _issueDateController.dispose();
+    _maturityDateController.dispose();
+    _declaredTenureController.dispose();
+    _enteredTenureController.dispose();
+    _lienController.dispose();
     super.dispose();
   }
 
@@ -1925,11 +1987,41 @@ class _InstitutionNewSubmissionPageState
       fdrNumber: _fdrController.text.trim(),
       bankName: _bankController.text.trim(),
       amount: int.parse(_amountController.text.trim()),
+      receiptAmount: int.parse(_receiptAmountController.text.trim()),
+      issueDate: _issueDateController.text.trim(),
+      maturityDate: _maturityDateController.text.trim(),
+      declaredTenureMonths: int.parse(_declaredTenureController.text.trim()),
+      enteredTenureMonths: int.parse(_enteredTenureController.text.trim()),
+      lienInformation: _lienController.text.trim(),
+      documents: const [
+        DemoDocument(
+          name: 'FDR receipt',
+          fileName: 'fdr_receipt.pdf',
+          status: 'Attached — Demo',
+        ),
+        DemoDocument(
+          name: 'Institution request letter',
+          fileName: 'request_letter.pdf',
+          status: 'Attached — Demo',
+        ),
+        DemoDocument(
+          name: 'Bank confirmation letter',
+          fileName: 'bank_confirmation.pdf',
+          status: 'Attached — Demo',
+        ),
+      ],
     );
     Navigator.of(context).pop(true);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('${submission.fdrNumber} added to submissions.')),
     );
+  }
+
+  String? _positiveAmount(String? value) {
+    final amount = int.tryParse(value?.trim() ?? '');
+    return amount == null || amount <= 0
+        ? 'Enter an amount greater than zero'
+        : null;
   }
 
   @override
@@ -1988,6 +2080,76 @@ class _InstitutionNewSubmissionPageState
                   return null;
                 },
               ),
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: const Text('Additional verification details'),
+                subtitle: const Text('Dates, tenure, lien, and documents'),
+                children: [
+                  _InputLabel(label: 'Receipt amount (INR)'),
+                  TextFormField(
+                    controller: _receiptAmountController,
+                    decoration: _fieldDecoration('Amount shown on the receipt'),
+                    keyboardType: TextInputType.number,
+                    validator: _positiveAmount,
+                  ),
+                  const SizedBox(height: 14),
+                  _InputLabel(label: 'Issue date'),
+                  TextFormField(
+                    controller: _issueDateController,
+                    decoration: _fieldDecoration('e.g. 26 Oct 2026'),
+                    validator: _required,
+                  ),
+                  const SizedBox(height: 14),
+                  _InputLabel(label: 'Maturity date'),
+                  TextFormField(
+                    controller: _maturityDateController,
+                    decoration: _fieldDecoration('e.g. 26 Oct 2029'),
+                    validator: _required,
+                  ),
+                  const SizedBox(height: 14),
+                  _InputLabel(label: 'Declared tenure (months)'),
+                  TextFormField(
+                    controller: _declaredTenureController,
+                    decoration: _fieldDecoration('e.g. 36'),
+                    keyboardType: TextInputType.number,
+                    validator: _positiveAmount,
+                  ),
+                  const SizedBox(height: 14),
+                  _InputLabel(label: 'Entered tenure (months)'),
+                  TextFormField(
+                    controller: _enteredTenureController,
+                    decoration: _fieldDecoration('e.g. 36'),
+                    keyboardType: TextInputType.number,
+                    validator: _positiveAmount,
+                  ),
+                  const SizedBox(height: 14),
+                  _InputLabel(label: 'Lien information'),
+                  TextFormField(
+                    controller: _lienController,
+                    decoration: _fieldDecoration(
+                      'Enter lien or security details',
+                    ),
+                    validator: _required,
+                  ),
+                  const SizedBox(height: 18),
+                  const _InputLabel(label: 'Supporting documents'),
+                  const SizedBox(height: 6),
+                  _DummyDocumentAttachment(
+                    fileName: 'fdr_receipt.pdf',
+                    description: 'Fixed Deposit Receipt',
+                  ),
+                  const SizedBox(height: 8),
+                  _DummyDocumentAttachment(
+                    fileName: 'request_letter.pdf',
+                    description: 'Institution request letter',
+                  ),
+                  const SizedBox(height: 8),
+                  _DummyDocumentAttachment(
+                    fileName: 'bank_confirmation.pdf',
+                    description: 'Bank confirmation letter',
+                  ),
+                ],
+              ),
               const SizedBox(height: 20),
               SizedBox(
                 height: 50,
@@ -2011,6 +2173,59 @@ class InstitutionReleaseRequestPage extends StatefulWidget {
   @override
   State<InstitutionReleaseRequestPage> createState() =>
       _InstitutionReleaseRequestPageState();
+}
+
+class _DummyDocumentAttachment extends StatelessWidget {
+  const _DummyDocumentAttachment({
+    required this.fileName,
+    required this.description,
+  });
+
+  final String fileName;
+  final String description;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFFBF7),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: _line),
+    ),
+    child: Row(
+      children: [
+        const Icon(Icons.picture_as_pdf_outlined, color: _deepOrange, size: 20),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                description,
+                style: const TextStyle(
+                  color: _ink,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                fileName,
+                style: const TextStyle(color: _muted, fontSize: 10),
+              ),
+            ],
+          ),
+        ),
+        const Text(
+          'Attached — Demo',
+          style: TextStyle(
+            color: Color(0xFF15803D),
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _InstitutionReleaseRequestPageState

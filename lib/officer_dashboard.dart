@@ -4769,13 +4769,38 @@ class DemoFdrPortalStore extends ChangeNotifier {
     required String bank,
     required String fdrNumber,
     required int amount,
+    int? receiptAmount,
+    String? issueDate,
+    String? maturityDate,
+    int declaredTenureMonths = 36,
+    int enteredTenureMonths = 36,
+    String lienInformation = 'Not provided',
     List<DemoDocument> documents = const [],
   }) {
+    final normalizedIssueDate = issueDate?.trim().isNotEmpty == true
+        ? issueDate!.trim()
+        : _shortDate(DateTime.now());
+    final normalizedMaturityDate = maturityDate?.trim().isNotEmpty == true
+        ? maturityDate!.trim()
+        : _shortDate(
+            DateTime(
+              DateTime.now().year + 3,
+              DateTime.now().month,
+              DateTime.now().day,
+            ),
+          );
+    final normalizedReceiptAmount = receiptAmount ?? amount;
     if (institution.trim().isEmpty ||
         institutionId.trim().isEmpty ||
         bank.trim().isEmpty ||
         fdrNumber.trim().isEmpty ||
-        amount <= 0) {
+        amount <= 0 ||
+        normalizedReceiptAmount <= 0 ||
+        normalizedIssueDate.isEmpty ||
+        normalizedMaturityDate.isEmpty ||
+        declaredTenureMonths <= 0 ||
+        enteredTenureMonths <= 0 ||
+        lienInformation.trim().isEmpty) {
       throw ArgumentError(
         'Institution, bank, FDR reference, and a positive amount are required.',
       );
@@ -4804,12 +4829,12 @@ class DemoFdrPortalStore extends ChangeNotifier {
       bank: bank,
       fdrNumber: normalizedFdrNumber,
       declaredDepositAmount: amount,
-      receiptAmount: amount,
-      issueDate: _shortDate(DateTime.now()),
-      maturityDate: 'Not provided',
-      declaredTenureMonths: 0,
-      enteredTenureMonths: 0,
-      lienInformation: 'Not provided',
+      receiptAmount: normalizedReceiptAmount,
+      issueDate: normalizedIssueDate,
+      maturityDate: normalizedMaturityDate,
+      declaredTenureMonths: declaredTenureMonths,
+      enteredTenureMonths: enteredTenureMonths,
+      lienInformation: lienInformation.trim(),
       submissionStatus: 'Pending Review',
       documents: documents.isEmpty
           ? const [
